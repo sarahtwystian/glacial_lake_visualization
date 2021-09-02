@@ -1,63 +1,64 @@
-library("shiny")
-library("ggplot2")
-library("dplyr")
-library("plotly")
-library("dplyr")
+library(shiny)
+library(ggplot2)
+library(dplyr)
+library(plotly)
+library(dplyr)
+library(readr)
 
-lakes<-read.csv("links.csv")
-
-graph<-ggplotly(
-  ggplot(lakes,aes(x=year,y=Area, group=GL_ID))+
-    geom_line()+
-    geom_point()+
-    scale_x_continuous(breaks=seq(2015,2021,1),limits=c(2015,2021))+
-    scale_y_continuous(breaks=seq(0,5,0.2))+
-    xlab("Year")
-  )
-
+lakes <- read_csv("lake_areas.csv")
 
 ui <- fluidPage(
   sidebarPanel(
-    sliderInput("area", "Area:", min = 0, max = 5, value = c(0,5), step=0.001),
+    sliderInput("area", "Area:", min = 0, max = max(lakes$area), value = c(0,max(lakes$area)), step=0.001),
     selectInput("lakeID", "Lake ID", choices = lakes$GL_ID, selected=NULL),
     width=12
   ),
   
-  plotOutput("plot", brush = "plot_brush"),
-  h4(lakeID),
-  uiOutput("img")
-  
+  plotOutput("plot", brush = "plot_brush", height = 500),
+  h4("lakeID"),
+  uiOutput("images")
 )
 
 server <- function(input, output, session) {
   output$plot <- renderPlot({
-     #if (is.null(input$lakeID)){
-       ggplot(lakes,aes(x=year,y=Area, group=GL_ID))+
-         geom_line()+
-         geom_point()+
-         scale_x_continuous(breaks=seq(2015,2021,1),limits=c(2015,2021))+
-         ylim(input$area[1],input$area[2])+
+       ggplot(lakes,aes(time, area, group=GL_ID))+
+         geom_point( size = 1) +
+         geom_line(aes(group = GL_ID), size = 0.7, alpha = 0.5) +
+         scale_y_log10() +
+         ylim(input$area[1],input$area[2]) +
          xlab("Year")
-     #}
-    # else {
-    #   #lakes_grouped %>% 
-    #   ggplot(lakes,aes(x=year, y=Area, group=input$lakeID))+
-    #     geom_line()+
-    #     geom_point()+
-    #     scale_x_continuous(breaks=seq(2015,2021,1),limits=c(2015,2021))+
-    #     ylim(input$area[1],input$area[2])+
-    #     xlab("Year")
-    # }
-      }, 
-    res = 96)
+  },
+  res = 96, height = 250)
   
-  # output$img <- renderUI({
-  #   tags$img(src = "https://glaciersblob.blob.core.windows.net/lakes/thumbnails/sentinel/GL080178E30564N_2020-12-07.png")
-  # })
+  # get lakes and times for selected lakes
+  selected <- reactive({
+    brushedPoints(lakes, input$plot_brush, "time", "area") %>%
+      select(GL_ID, time)
+  })
   
- 
+  output$images <- renderUI({
+    x <- selected() %>%
+      top_n(1e3)
+    if (nrow(x) == 0) {
+      return()
+    }
+  
+    base <- "https://glaciersblob.blob.core.windows.net/lakes/thumbnails/sentinel/"
+    ids <- distinct(x, GL_ID) %>%
+      pull(GL_ID)
+    
+    divs <- map(ids, ~ tagList(tags$div(class=.)))
+    names(divs) <- ids
+    
+    for (i in seq_len(nrow(x))) {
+      gl_id <- x$GL_ID[i]
+      link <- str_c(base, gl_id, "_", x$time[i], ".png")
+      divs[[gl_id]] <- tagAppendChild(divs[[gl_id]], tags$img(src=link, width=80))
+      print(i)
+      
+    }
+    divs
+  })
 }
 
-
 shinyApp(ui, server)
-

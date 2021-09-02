@@ -1,0 +1,76 @@
+---
+title: "Areas from Geojsons"
+output: html_notebook
+params:
+  base_dir: "/Users/ksankaran/Desktop/glaciers"
+  geojson_dir: "data/sentinel-unet/"
+---
+
+```{r}
+library(dplyr)
+library(fs)
+library(ggplot2)
+library(lubridate)
+library(purrr)
+library(readr)
+library(sf)
+library(stringr)
+library(tidyr)
+library(tools)
+theme479 <- theme_minimal() + 
+  theme(
+    panel.grid.minor = element_blank(),
+    panel.background = element_rect(fill = "#f7f7f7"),
+    panel.border = element_rect(fill = NA, color = "#0c0c0c", size = 0.6),
+    legend.position = "bottom"
+  )
+theme_set(theme479)
+```
+
+```{r, messages = FALSE, warning = FALSE}
+metadata <- read_sf(file.path(params$base_dir, "data/GL_3basins_2015.shp")) %>%
+  select(GL_ID, Sub_Basin, Area) %>%
+  rename(original_area = Area)
+paths <- dir_ls(file.path(params$base_dir, params$geojson_dir), glob="*geojson")
+
+lakes <- list()
+for (i in seq_along(paths)) {
+  lakes[[i]] <- read_sf(paths[i]) %>%
+    st_union() %>%
+    as.data.frame() %>%
+    mutate(path = file_path_sans_ext(basename(paths[i]))) %>%
+    separate(path, c("GL_ID", "time"), "_") %>%
+    mutate(
+      time = ymd(time),
+      area = as.numeric(st_area(geometry)) / 1e6
+    )
+}
+
+lakes <- bind_rows(lakes) %>%
+ left_join(st_drop_geometry(metadata))
+```
+
+```{r}
+ggplot(lakes, aes(time, area)) +
+  geom_point( size = 1) +
+  geom_line(aes(group = GL_ID), size = 0.7, alpha = 0.5) +
+  facet_wrap(~ Sub_Basin) +
+  scale_y_log10() +
+  labs(y = "Estimated Area", size = "ICIMOD Area")
+```
+
+```{r}
+ggplot(lakes) +
+  geom_abline(slope = 1) +
+  geom_point(
+    aes(original_area, area, col = time),
+    alpha = 0.8, size = 0.8
+  ) +
+  coord_fixed() +
+  facet_wrap(~ Sub_Basin)
+```
+
+```{r}
+write_csv(lakes, file.path(params$base_dir, "data/lake_areas.csv"))
+```
+
