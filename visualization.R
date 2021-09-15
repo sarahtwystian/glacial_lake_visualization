@@ -4,6 +4,8 @@ library(dplyr)
 library(plotly)
 library(dplyr)
 library(readr)
+library(purrr)
+library(stringr)
 
 lakes <- read_csv("lake_areas.csv")
 
