@@ -54,15 +54,95 @@ Next, we look at metrics against some of the measured factors. We extract date
 from the filename. Sub-basin and 2015 area are found by joining according to
 glacier ID.
 
+```{r}
+test_metrics <- metrics %>% 
+  separate(sample_id, c("GL_ID", "date"), "_") %>%
+  mutate(date = as.Date(date)) %>%
+  filter(date <= as.Date("2016-12-31"))
+```
 
+Before plotting against any factors, let's look at the histogram of errors
+overall. These results are terrible, but I wonder whether it's just because the
+probability threshold for evaluation is too aggressive? It will help to look at
+some probability masks at different error metrics (see section "Examples").
+
+```{r, fig.width = 10, fig.height = 3}
+metrics_long <- test_metrics %>%
+  pivot_longer(-(GL_ID:date), names_to = "metric")
+
+ggplot(metrics_long) +
+  geom_histogram(aes(value), bins = 20) +
+  facet_grid(. ~ metric, scales = "free_x")
+```
+
+Next, we plot metrics over time, location, and 2015 area. We find,
+* Precision is somewhat better on larger lakes
+* A slight deterioration in precision in fall 2016. Otherwise, no relationship with time.
+* There are a few sub_basins where we consistently do poorly on
+
+```{r, fig.width = 7, fig.height = 5}
+ggplot(metrics_long, aes(date, sqrt(value))) +
+  stat_smooth() +
+  geom_point(
+    size = 0.3, alpha = 0.7,
+    position = position_jitter(w = 1)
+  ) +
+  facet_grid(metric ~ ., scales = "free_y")
+```
+
+```{r}
+metrics_long <- metrics_long %>%
+  left_join(labels)
+
+ggplot(metrics_long, aes(log(Area), sqrt(value))) +
+  stat_smooth(se = F, method = "loess", span = 0.5) +
+  geom_point(
+    size = 0.3, alpha = 0.7,
+    position = position_jitter(w = 0.1, h = 0.01)
+  ) +
+  facet_wrap(~ metric, scale = "free_y")
+```
+
+```{r}
+sub_basin_order <- metrics_long %>%
+  filter(metric == "IoU") %>%
+  group_by(Sub_Basin) %>%
+  summarise(mean_IoU = mean(value)) %>%
+  arrange(-mean_IoU) %>%
+  pull(Sub_Basin)
+metrics_long <- metrics_long %>%
+  mutate(Sub_Basin = factor(Sub_Basin, levels = sub_basin_order))
+
+ggplot(metrics_long, aes(sqrt(value), Sub_Basin)) +
+  geom_point(
+    size = 0.3, alpha = 0.7,
+    position = position_jitter(w = 0, h = 0.05)
+  ) +
+  facet_wrap(~ metric, scale = "free_x")
+```
+
+```{r}
+p <- list()
+for (m in c("IoU", "precision", "recall", "frechet")) {
+  p[[m]] <- ggplot(metrics_long %>% filter(metric == m), aes(Longitude, Latitude)) +
+    geom_point(
+      aes(size = value),
+      alpha = 0.7,
+    ) +
+    scale_size(range = c(0.01, 5)) +
+    facet_wrap(~ metric, scale = "free_x")
+}
+
+p
+```
 
 ### Outline
 
-get the metrics file
-get the lakes shapefile
-get the metadata file
-make a histogram of the errors
-plot the errors against time of year, sub-basin, lake size, nadir angle
+X get the metrics file
+X get the lakes shapefile
+? get the metadata file
+X make a histogram of the errors
+X plot the errors against time of year, sub-basin, lake size, nadir angle
 create blob links to all the prediction probability tiffs
 write a function that given a lake id, plots an image of the prediction
 show random images at different error quantiles
