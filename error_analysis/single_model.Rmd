@@ -1,0 +1,70 @@
+---
+title: "Single Model Errors"
+output: pdf_document
+---
+
+This script breaks overall error rates for a model into component elements. The
+central questions are,
+  - Are there measured factors that are related to model performance? (e.g., lake
+    area or time of year)
+  - Are there certain classes of errors that aren't related to directly measured
+    variables, but which we can observe by exploring example predictions?
+  - How correlated are the different error metrics? To what extent is model
+  - performance a multi-dimensional phenomenon?
+
+While prototyping, we'll focus on errors made by the U-Net model on Sentinel. In
+theory, this should all generalize, but an example to start with is worthwhile.
+
+### Data Sources
+
+We'll first read in some relevant metadata. I've hosted them on an azure blob.
+
+```{r}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(tibble)
+library(sf)
+library(stringr)
+```
+
+```{r}
+portal <- "https://glaciersblob.blob.core.windows.net/lakes/sentinel_metadata"
+metrics <- read_csv(file.path(portal, "metrics.csv"))
+statistics <- read_csv(file.path(portal, "statistics.csv"))
+
+tmp <- tempdir()
+download.file(file.path(portal, "GL_3basins_2015.shp"), file.path(tmp, "GL_3basins_2015.shp"))
+download.file(file.path(portal, "GL_3basins_2015.prj"), file.path(tmp, "GL_3basins_2015.prj"))
+download.file(file.path(portal, "GL_3basins_2015.shx"), file.path(tmp, "GL_3basins_2015.shx"))
+download.file(file.path(portal, "GL_3basins_2015.CPG"), file.path(tmp, "GL_3basins_2015.CPG"))
+download.file(file.path(portal, "GL_3basins_2015.dbf"), file.path(tmp, "GL_3basins_2015.dbf"))
+download.file(file.path(portal, "GL_3basins_2015.sbx"), file.path(tmp, "GL_3basins_2015.sbx"))
+labels <- read_sf(file.path(tmp, "GL_3basins_2015.shp"))
+```
+
+It would be nice to have the metadata that was collected during the initial
+sentinel download, but I can't find it. I think it might have been lost when
+going from raw to processed folders.
+
+### Measured Factors
+
+Next, we look at metrics against some of the measured factors. We extract date
+from the filename. Sub-basin and 2015 area are found by joining according to
+glacier ID.
+
+
+
+### Outline
+
+get the metrics file
+get the lakes shapefile
+get the metadata file
+make a histogram of the errors
+plot the errors against time of year, sub-basin, lake size, nadir angle
+create blob links to all the prediction probability tiffs
+write a function that given a lake id, plots an image of the prediction
+show random images at different error quantiles
+give an option to print out all the errors, with lake image next to performance
+metrics
