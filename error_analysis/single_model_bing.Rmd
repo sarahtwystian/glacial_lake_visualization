@@ -1,0 +1,155 @@
+---
+title: "Single Model Errors - Sentinel"
+output: pdf_document
+---
+
+This analysis almost exactly parallels the one in `single_model_sentinel.Rmd`,
+except it uses the Bing models and doesn't assume we have access to the data in
+which an image was obtained.
+
+### Data Sources
+
+We'll first read in some relevant metadata. I've hosted them on an azure blob.
+
+```{r}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(tibble)
+library(sf)
+library(stringr)
+```
+
+```{r}
+portal <- "https://glaciersblob.blob.core.windows.net/lakes/metadata"
+metrics <- read_csv(file.path(portal, "bing", "predictions", "unet", "metrics.csv"))
+#statistics <- read_csv(file.path(portal, "bing", "statistics.csv"))
+
+tmp <- tempdir()
+download.file(file.path(portal, "GL_3basins_2015.shp"), file.path(tmp, "GL_3basins_2015.shp"))
+download.file(file.path(portal, "GL_3basins_2015.prj"), file.path(tmp, "GL_3basins_2015.prj"))
+download.file(file.path(portal, "GL_3basins_2015.shx"), file.path(tmp, "GL_3basins_2015.shx"))
+download.file(file.path(portal, "GL_3basins_2015.CPG"), file.path(tmp, "GL_3basins_2015.CPG"))
+download.file(file.path(portal, "GL_3basins_2015.dbf"), file.path(tmp, "GL_3basins_2015.dbf"))
+download.file(file.path(portal, "GL_3basins_2015.sbx"), file.path(tmp, "GL_3basins_2015.sbx"))
+labels <- read_sf(file.path(tmp, "GL_3basins_2015.shp"))
+```
+
+It would be nice to have the metadata that was collected during the initial
+sentinel download, but I can't find it. I think it might have been lost when
+going from raw to processed folders.
+
+### Measured Factors
+
+Next, we look at metrics against some of the measured factors. We extract date
+from the filename. Sub-basin and 2015 area are found by joining according to
+glacier ID.
+
+Before plotting against any factors, let's look at the histogram of errors
+overall. These results are terrible, but I wonder whether it's just because the
+probability threshold for evaluation is too aggressive? It will help to look at
+some probability masks at different error metrics (see section "Examples").
+
+```{r, fig.width = 10, fig.height = 3}
+metrics_long <- metrics %>%
+  select(-sample_id) %>%
+  pivot_longer(-GL_ID, names_to = "metric")
+
+ggplot(metrics_long) +
+  geom_histogram(aes(value), bins = 20) +
+  facet_grid(. ~ metric, scales = "free_x")
+```
+
+Some findings are,
+* finding 1
+* finding 2
+
+```{r}
+metrics_long <- metrics_long %>%
+  left_join(labels)
+
+ggplot(metrics_long, aes(log(Area), sqrt(value))) +
+  stat_smooth(se = F, method = "loess", span = 0.5) +
+  geom_point(
+    size = 0.3, alpha = 0.7,
+    position = position_jitter(w = 0.1, h = 0.01)
+  ) +
+  facet_wrap(~ metric, scale = "free_y")
+```
+
+```{r}
+sub_basin_order <- metrics_long %>%
+  filter(metric == "IoU") %>%
+  group_by(Sub_Basin) %>%
+  summarise(mean_IoU = mean(value)) %>%
+  arrange(-mean_IoU) %>%
+  pull(Sub_Basin)
+metrics_long <- metrics_long %>%
+  mutate(Sub_Basin = factor(Sub_Basin, levels = sub_basin_order))
+
+ggplot(metrics_long, aes(sqrt(value), Sub_Basin)) +
+  geom_point(
+    size = 0.3, alpha = 0.7,
+    position = position_jitter(w = 0, h = 0.05)
+  ) +
+  facet_wrap(~ metric, scale = "free_x")
+```
+
+```{r}
+p <- list()
+for (m in c("IoU", "precision", "recall", "frechet")) {
+  p[[m]] <- ggplot(metrics_long %>% filter(metric == m), aes(Longitude, Latitude)) +
+    geom_point(
+      aes(size = value),
+      alpha = 0.7,
+    ) +
+    scale_size(range = c(0, 1)) +
+    facet_wrap(~ metric, scale = "free_x")
+}
+
+p
+```
+
+### Prediction Examples
+
+First, let's look at 10 lakes with high IoU.
+
+```{r}
+library(purrr)
+```
+
+```{r}
+library(knitr)
+library(purrr)
+image_from_links <- function(links) {
+  images <- list()
+  for (l in seq_along(links)) {
+    images[[l]] <- include_graphics(links[l])
+  }
+  
+  images
+}
+
+```
+
+```{r}
+representatives <- metrics %>%
+  mutate(quantile = ntile(IoU, 5)) %>% 
+  group_by(quantile) %>%
+  sample_n(10)
+
+par(mfrow = c(10, 5))
+representatives %>%
+  pull(GL_ID) %>%
+  map(~ c(
+    str_c(portal, "/bing/predictions/unet/", ., "_prob.png"),
+    str_c(portal, "/bing/images/", ., ".png")
+  )) %>%
+  unlist() %>%
+  image_from_links()
+```
+
+```{r}
+include_graphics(str_c(portal, "/bing/images/GL080073E30336N.png"))
+```
