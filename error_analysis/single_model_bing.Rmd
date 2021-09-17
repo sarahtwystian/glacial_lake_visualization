@@ -151,5 +151,35 @@ representatives %>%
 ```
 
 ```{r}
-include_graphics(str_c(portal, "/bing/images/GL080073E30336N.png"))
+representatives
 ```
+```{r}
+library(ggrepel)
+ggplot(metrics) +
+  geom_point(aes(IoU, frechet)) +
+  geom_text_repel(data = metrics %>% filter((frechet < 500 | frechet > 800) & (IoU > 0.01)), aes(IoU, frechet, label = GL_ID), size = 2)
+```
+
+```{r}
+include_graphics(str_c(portal, "/bing/images/", "GL086073E28037N.png"))
+include_graphics(str_c(portal, "/bing/predictions/unet/", "GL086073E28037N_prob.png"))
+```
+
+```{r}
+gap_ix <- lm(frechet ~ IoU, data = metrics) %>%
+  resid() %>%
+  abs() %>%
+  order(decreasing = TRUE)
+
+```
+
+```{r}
+metrics$GL_ID[gap_ix[1:10]] %>%
+  map(~ c(
+    str_c(portal, "/bing/predictions/unet/", ., "_prob.png"),
+    str_c(portal, "/bing/images/", ., ".png")
+  )) %>%
+  unlist() %>%
+  image_from_links()
+```
+
