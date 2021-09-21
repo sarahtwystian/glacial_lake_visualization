@@ -10,13 +10,15 @@ library(DT)
 library(tidyr)
 
 lakes <- read_csv("lake_areas.csv")
-print(lakes[1])
+
+
 
 ui <- fluidPage(
   sidebarPanel(
     sliderInput("area", "Area:", min = 0, max = max(lakes$area), value = c(0,max(lakes$area)), step=0.001),
     uiOutput("lakeSelector"),
     uiOutput("basinSelector"),
+    #uiOutput("trendSelector"),
     width=12
   ),
   
@@ -30,56 +32,94 @@ server <- function(input, output, session) {
       top_n(1e3)
     print(y)
     
-    if (length(input$sub_basin)!=0){
-      ggplot() +
-        geom_point(data=filter(lakes, Sub_Basin %in% input$sub_basin),aes(time, area),size = 1) +
-        geom_point(data=filter(y, Sub_Basin %in% input$sub_basin), aes(time, area), size = 1, color="orange") +
-        geom_line(data=filter(lakes, Sub_Basin %in% input$sub_basin),aes(time, area, group = GL_ID), size = 0.7, alpha = 0.5) +
-        scale_y_log10()+
-        ylim(input$area[1],input$area[2]) +
-        xlab("Year")
-    }
-    else if(length(input$lakeID)!=0){
-      ggplot() +
-        geom_point(data=filter(lakes, GL_ID %in% input$lakeID),aes(time, area),size = 1) +
-        geom_point(data=filter(y, GL_ID %in% input$lakeID), aes(time, area), size = 1, color="orange") +
-        geom_line(data=filter(lakes, GL_ID %in% input$lakeID),aes(time, area, group = GL_ID), size = 0.7, alpha = 0.5) +
-        scale_y_log10()+
-        ylim(input$area[1],input$area[2]) +
-        xlab("Year")
+    if (nrow(y) == 0) {
+      lakes$brush<-rep(FALSE, nrow(lakes))
     }
     else{
-      ggplot()+
-        geom_point(data=lakes,aes(time, area),size = 1) +
-        geom_point(data=y, aes(time, area),  size = 1, color="orange") +
-        geom_line(data=lakes,aes(time, area, group = GL_ID), size = 0.7, alpha = 0.5) +
+      lakes$sel<-rep(FALSE, nrow(lakes))
+      y$selected_<-rep(TRUE, nrow(y))
+      lakes<-left_join(lakes,y,by=c("GL_ID","time","area","Sub_Basin")) %>% 
+        mutate(brush = ifelse(is.na(selected_), sel, selected_)) %>% 
+        select(GL_ID, time, area, Sub_Basin, brush)
+    }
+    #print(y)
+    #print(head(lakes))
+    print("subbasin")
+    print(length(input$sub_basin)==0)
+    print("lakeid")
+    print(length(input$lakeID)==0)
+    
+    if (length(input$sub_basin)!=0 & length(input$lakeID)==0){
+      print("1")
+      ggplot(data=filter(lakes, Sub_Basin %in% input$sub_basin), aes(time, area)) +
+        geom_point(aes(color=brush), size = 1) +
+        geom_line(aes(group = GL_ID), size = 0.7, alpha = 0.5) +
+        scale_y_log10()+
+        ylim(input$area[1],input$area[2]) +
+        xlab("Year")+
+        scale_color_manual(values=c("black","red"))
+    }
+    else if(length(input$lakeID)!=0 & length(input$sub_basin)==0){
+      print("2")
+      ggplot(data=filter(lakes, GL_ID %in% input$lakeID), aes(time, area)) +
+        geom_point(aes(color=brush), size = 1) +
+        geom_line(aes(group = GL_ID), size = 0.7, alpha = 0.5) +
+        scale_y_log10()+
+        ylim(input$area[1],input$area[2]) +
+        xlab("Year")+
+        scale_color_manual(values=c("black","red"))
+    }
+    else if(length(input$sub_basin)!=0 & length(input$lakeID)!=0){
+      print("3")
+      ggplot(data=filter(lakes, (GL_ID %in% input$lakeID) & (Sub_Basin %in% input$sub_basin)), aes(time, area)) +
+        geom_point(aes(color=brush), size = 1) +
+        geom_line(aes(group = GL_ID), size = 0.7, alpha = 0.5) +
+        scale_y_log10()+
+        ylim(input$area[1],input$area[2]) +
+        xlab("Year")+
+        scale_color_manual(values=c("black","red"))
+    }
+    else{
+      print("4")
+      ggplot(data=lakes, aes(time, area))+
+        geom_point(aes(color=brush),  size = 1, show.legend = FALSE) +
+        geom_line(aes(group = GL_ID), size = 0.7, alpha = 0.5) +
         scale_y_log10() +
         ylim(input$area[1],input$area[2]) +
-        xlab("Year")
+        xlab("Year")+
+        scale_color_manual(values=c("black","red"))
     } 
     
   },
   res = 96, height = 250)
   
+
+  
   selected <- reactive({
     #df<-filter(lakes,(Sub_Basin %in% input$sub_basin)&(GL_ID %in% input$lakeID))
     df<-if(length(input$sub_basin)!=0){filter(lakes, Sub_Basin %in% input$sub_basin) }else{lakes}
-    df<-if(length(input$lakeID)!=0){filter(df, GL_ID %in% input$lakeID)}
+    df<-if(length(input$lakeID)!=0){filter(df, GL_ID %in% input$lakeID)}else{lakes}
     if(length(input$sub_basin)!=0|length(input$lakeID)!=0){
-      brushedPoints(df, input$plot_brush, "time", "area") %>%
-        select(GL_ID, time, area, Sub_Basin)
+      brushedPoints(df, input$plot_brush, "time", "area", allRows = TRUE) %>%
+        select(GL_ID, time, area, Sub_Basin, selected_) %>% 
+        filter(selected_==TRUE)
     }
     else{
-      brushedPoints(lakes, input$plot_brush, "time", "area") %>%
-        select(GL_ID, time, area, Sub_Basin)
+      brushedPoints(lakes, input$plot_brush, "time", "area", allRows = TRUE) %>%
+        select(GL_ID, time, area, Sub_Basin, selected_) %>% 
+        filter(selected_==TRUE)
     }
+  })
+  
+  observeEvent(input$plot_reset, {
+    selected(rep(FALSE, nrow(lakes)))
   })
   
   output$table = DT::renderDataTable({
     x <- selected() %>%
       select(GL_ID,time) %>% 
       top_n(1e3)
-    #print(x)
+    print(x)
     
     if (nrow(x) == 0) {
       return()
@@ -143,6 +183,10 @@ server <- function(input, output, session) {
         multiple = TRUE)
     }
   })
+  
+  # output$trendSelector <- renderUI({
+  #   
+  # })
   
   
 }
