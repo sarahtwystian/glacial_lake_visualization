@@ -1,1 +1,1 @@
-# glaicla_lake_visualization
+# glacial_lake_visualization
