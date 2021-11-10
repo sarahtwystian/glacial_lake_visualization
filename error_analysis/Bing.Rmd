@@ -1,0 +1,292 @@
+---
+title: "Bing"
+author: "Sarah Tian"
+date: "10/21/2021"
+output: pdf_document
+---
+
+```{r}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(tibble)
+library(sf)
+library(stringr)
+library(superheat)
+library(stringr)
+```
+
+```{r}
+base<-"/Users/weiyushitian/Documents/Latent_Lab/error_analysis/new"
+labels <- read_sf(file.path(base, "labels", "GL_3basins_2015.shp"))
+metrics_combined<-read_csv("/Users/weiyushitian/Documents/Latent_Lab/error_analysis/new/metrics_combined.csv")
+metrics_avg<-read_csv("/Users/weiyushitian/Documents/Latent_Lab/error_analysis/new/metrics_average.csv")
+```
+
+```{r}
+m<-metrics_combined
+m$model<-str_extract(metrics_combined$model,"[^/]((\\w+)_(\\w+)-(\\w+)-(\\w+))|((\\w+)_(\\w+)-(\\w+))|((\\w+)_(\\w+)-(\\w+)-(\\w+))|((\\w+)-(\\w+)-(\\w+))|((\\w+)-(\\w+))")
+m$dataset<-str_extract(m$model,"[^_-]+")
+#m$model<-str_extract(m$model,"((?<=bing_)(\\w+)-(\\w+)-(\\w+))|((?<=bing_)(\\w+)-(\\w+))|((?<=bing-)(\\w+)-(\\w+))|((?<=bing-)(\\w+))|((?<=sentinel_)(\\w+)-(\\w+)-(\\w+))|((?<=sentinel_)(\\w+)-(\\w+))|((?<=sentinel-)(\\w+)-(\\w+))|((?<=sentinel-)(\\w+))")
+m <- m %>% mutate(test=ifelse(str_detect(model,"test"),"True","False"))
+```
+
+####area vs performance
+
+```{r}
+metrics_bing<-m %>% 
+  filter(dataset=="bing")
+metrics_bing$model<-str_extract(metrics_bing$model,"((?<=bing_)(\\w+)-(\\w+)-(\\w+))|((?<=bing_)(\\w+)-(\\w+))|((?<=bing-)(\\w+)-(\\w+))|((?<=bing-)(\\w+))")
+
+
+bing_max <- metrics_bing %>% 
+  group_by(model,sample_id) %>% 
+  slice(which.max(IoU))
+
+bing_prob<-round(mean(bing_max$prob),2)#find the average prob corresponding to the max IoU
+
+m_bing<-metrics_bing %>% 
+  filter(prob==bing_prob) %>% 
+  dplyr::select(-sample_id) %>%
+  pivot_longer(-c(GL_ID,model,path,dataset,prob,test), names_to = "metric")
+
+bing <- m_bing %>% filter(test=="False")
+bing_test <- m_bing %>% filter(test=="True")
+  
+ggplot(bing)+
+  geom_histogram(aes(value), bins = 20) +
+  facet_grid(model ~ metric, scales = "free")+
+  theme(strip.text.y = element_text(angle = 0))
+```
+
+```{r}
+ggplot(bing_test)+
+  geom_histogram(aes(value), bins = 20) +
+  facet_grid(model ~ metric, scales = "free")+
+  theme(strip.text.y = element_text(angle = 0))
+```
+
+
+
+
+```{r,warning=FALSE,message=FALSE}
+metrics<-c("IoU","precision","recall","frechet")
+
+for(i in metrics){
+  metric_bing<-metrics_bing %>% 
+    filter(test=="False") %>% 
+    filter(prob==bing_prob) %>%
+    dplyr::select(sample_id,model,i)%>% 
+    pivot_wider(names_from = model, values_from = i)%>%
+    column_to_rownames(var = "sample_id") 
+  metric_bing$variance = apply(metric_bing[,1:length(colnames(metric_bing))], 1, var)
+  metric_bing<-metric_bing %>% arrange(variance)
+  
+  #print top 10 lakes with lowest variability across models
+  print(metric_bing %>% top_n(10) %>% mutate(metric=i))
+  
+  #print last 10 lakes with lowest variability across models
+  print(metric_bing %>% top_n(-10) %>% mutate(metric=i))
+  
+  superheat(metric_bing %>% dplyr::select(-variance), 
+            order.rows = order(metric_bing$variance), 
+            left.label = "none", 
+            pretty.order.rows = TRUE, 
+            bottom.label.text.size = 3,
+            title = str_c("Superheat for ",i))
+}
+
+```
+
+```{r,warning=FALSE,message=FALSE}
+metrics<-c("IoU","precision","recall","frechet")
+
+for(i in metrics){
+  metric_bing_test<-metrics_bing %>% 
+    filter(test=="True") %>% 
+    filter(prob==bing_prob) %>%
+    dplyr::select(sample_id,model,i)%>% 
+    pivot_wider(names_from = model, values_from = i)%>%
+    column_to_rownames(var = "sample_id") 
+  metric_bing_test$variance = apply(metric_bing_test[,1:length(colnames(metric_bing_test))], 1, var)
+  metric_bing_test<-metric_bing_test %>% arrange(variance)
+  
+  #print top 10 lakes with lowest variability across models
+  print(metric_bing_test %>% top_n(10) %>% mutate(metric=i))
+  
+  #print last 10 lakes with lowest variability across models
+  print(metric_bing_test %>% top_n(-10) %>% mutate(metric=i))
+  
+  superheat(metric_bing_test %>% dplyr::select(-variance), 
+            order.rows = order(metric_bing_test$variance), 
+            left.label = "none", 
+            pretty.order.rows = TRUE, 
+            bottom.label.text.size = 3,
+            title = str_c("Superheat for ",i))
+}
+
+
+
+```
+
+
+
+*Sample predictions with variability on performance-variance/range
+
+
+####area vs performance
+```{r}
+bing_long <- m_bing %>%
+  filter(test=="False") %>%
+  left_join(labels)
+
+ggplot(bing_long, aes(log(Area), sqrt(value),col=model)) +
+  geom_point(
+    size = 0.3, alpha = 0.05,
+    position = position_jitter(w = 0.1, h = 0.01)
+  ) +
+  facet_wrap(~ metric, scale = "free_y")+
+  stat_smooth(se = F, method = "loess", span = 0.5) 
+```
+
+```{r}
+bing_long_test <- m_bing %>%
+  filter(test=="True") %>%
+  left_join(labels)
+
+ggplot(bing_long_test, aes(log(Area), sqrt(value),col=model)) +
+  geom_point(
+    size = 0.3, alpha = 0.05,
+    position = position_jitter(w = 0.1, h = 0.01)
+  ) +
+  facet_wrap(~ metric, scale = "free_y")+
+  stat_smooth(se = F, method = "loess", span = 0.5) 
+```
+
+
+
+```{r,warning = FALSE}
+metrics<-unique(bing_long$metric)
+
+for(i in metrics){
+  sb_bing <- bing_long %>%
+    filter(metric == i) %>%
+    group_by(Sub_Basin) %>%
+    summarise(mean_metric = mean(value)) %>%
+    arrange(-mean_metric) %>%
+    pull(Sub_Basin)
+
+  bing_long <- bing_long %>%
+    mutate(Sub_Basin = factor(Sub_Basin, levels = sb_bing))
+  cur<-bing_long %>% filter(metric==i)
+  print(ggplot(cur, aes(sqrt(value), Sub_Basin)) +
+    geom_boxplot(
+      outlier.size = 0.3, alpha = 0.7
+    ) +
+    xlab(str_c("sqrt(",i,")")) +
+    facet_wrap(~ model, scale = "free_x"))
+}
+
+
+```
+
+```{r,warning = FALSE}
+metrics<-unique(bing_long_test$metric)
+
+for(i in metrics){
+  sb_bing_test <- bing_long_test %>%
+    filter(metric == i) %>%
+    group_by(Sub_Basin) %>%
+    summarise(mean_metric = mean(value)) %>%
+    arrange(-mean_metric) %>%
+    pull(Sub_Basin)
+
+  bing_long <- bing_long_test %>%
+    mutate(Sub_Basin = factor(Sub_Basin, levels = sb_bing_test))
+  cur<-bing_long_test %>% filter(metric==i)
+  print(ggplot(cur, aes(sqrt(value), Sub_Basin)) +
+    geom_boxplot(
+      outlier.size = 0.3, alpha = 0.7
+    ) +
+    xlab(str_c("sqrt(",i,")")) +
+    facet_wrap(~ model, scale = "free_x"))
+}
+
+
+```
+
+
+### Prediction Examples
+
+First, let's look at 10 lakes with high IoU in unet in sentinel.
+
+```{r}
+library(purrr)
+```
+
+```{r}
+library(knitr)
+library(purrr)
+library(raster)
+library(RStoolbox)
+
+image_from_links <- function(links) {
+  images <- list()
+  for (l in seq_along(links)) {
+    images[[l]] <- include_graphics(links[l])
+  }
+  
+  images
+}
+
+```
+
+```{r}
+
+models<-metrics_bing %>% filter(test=="True") %>% pull(model)
+models<-unique(models)
+represent<-list()
+for(i in models){
+  bing_test_model_rep <- metrics_bing %>% 
+    filter(test=="True") %>% 
+    filter(model==i) %>% 
+    mutate(quantile = ntile(IoU, 5)) %>% 
+    group_by(quantile) %>%
+    sample_n(10)
+  
+  cur<-str_c(unlist(strsplit(i,"-"))[-1],collapse = "-")
+  
+  par(mfrow = c(10, 5))
+  df<-bing_test_model_rep %>%
+    pull(sample_id) %>%
+    map(~ c(
+      str_c(base,"/bing-", cur, "-images/", ., "_prob.png"),
+      str_c(base,"/bing-", cur, "-images/", ., "_pred.png")
+    )) %>%
+    unlist() %>%
+    image_from_links()
+
+  represent[[cur]]<-df
+}
+
+
+
+```
+*include the truth
+
+```{r}
+represent$`delse-historical`
+```
+
+```{r}
+represent$delse
+```
+
+```{r}
+represent$`unet-historical`
+```
+
+```{r}
+represent$unet
+```
