@@ -1,0 +1,37 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(sf)
+library(dplyr)
+library(readr)
+library(stringr)
+```
+
+```{r}
+sentinel <- list()
+sentinel[["kris"]] <- read_sf("~/Desktop/glaciers/data/labels/sentinel_kris/labels_kris.shp") %>%
+  mutate(GL_ID = str_extract(file, "[:alnum:]+"))
+sentinel[["sarah"]] <- read_sf("~/Desktop/glaciers/data/labels/sentinel/sentinel_labels.shp") %>%
+  mutate(GL_ID = str_extract(file, "[:alnum:]+"))
+bind_rows(sentinel) %>%
+  write_sf("~/Desktop/glaciers/data/labels/sentinel_combined.shp")
+```
+
+
+```{r}
+bing <- list()
+bing[["sarah"]] <- read_sf("~/Desktop/glaciers/data/labels/bing/bing_labels.shp") %>%
+  mutate(GL_ID = str_extract(file, "[:alnum:]+"))
+bing[["kris"]] <- read_sf("~/Desktop/glaciers/data/labels/bing_kris.shp") %>%
+  mutate(GL_ID = str_extract(file, "[:alnum:]+"))
+bind_rows(bing) %>%
+  write_sf("~/Desktop/glaciers/data/labels/bing_combined.shp")
+```
+
+```
+scp sentinel_combined* azure://datadrive/snake/lakes/labeling/
+scp bing_combined* azure://datadrive/glaciers/bing_glaciers/labeling/
+```
