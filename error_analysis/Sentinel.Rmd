@@ -25,10 +25,14 @@ metrics_avg<-read_csv("/Users/weiyushitian/Documents/Latent_Lab/error_analysis/n
 ```
 
 ```{r}
-m<-metrics_combined
-m$model<-str_extract(metrics_combined$model,"[^/]((\\w+)_(\\w+)-(\\w+)-(\\w+))|((\\w+)_(\\w+)-(\\w+))|((\\w+)_(\\w+)-(\\w+)-(\\w+))|((\\w+)-(\\w+)-(\\w+))|((\\w+)-(\\w+))")
-m$dataset<-str_extract(m$model,"[^_-]+")
-m <- m %>% mutate(test=ifelse(str_detect(model,"test"),"True","False"))
+m<-metrics_combined %>% 
+  separate(model,c("na","result","model","filename"),"/") %>%
+  select(-c(na,result))%>% 
+  mutate(dataset=ifelse(str_detect(model,"bing"),"bing","sentinel")) %>%
+  mutate(test=ifelse(str_detect(model,"test"),"True","False"))
+#m$model<-str_extract(metrics_combined$model,"[^/]((\\w+)_(\\w+)-(\\w+)-(\\w+))|((\\w+)_(\\w+)-(\\w+))|((\\w+)_(\\w+)-(\\w+)-(\\w+))|((\\w+)-(\\w+)-(\\w+))|((\\w+)-(\\w+))")
+#m$dataset<-str_extract(m$model,"[^_-]+")
+
 ```
 
 ####area vs performance
@@ -43,11 +47,11 @@ sentinel_max <- metrics_sentinel %>%
   group_by(model,sample_id) %>% 
   slice(which.max(IoU))
 
-sentinel_prob<-round(mean(sentinel_max$prob),2)#find the average prob corresponding to the max IoU
+sentinel_prob<-round(mean(sentinel_max$prob),1)#find the average prob corresponding to the max IoU
 
 m_sentinel<-metrics_sentinel %>% 
   filter(prob==sentinel_prob) %>% 
-  dplyr::select(-sample_id) %>%
+  dplyr::select(-c(sample_id,filename)) %>%
   pivot_longer(-c(GL_ID,model,path,dataset,prob,test), names_to = "metric")
 
 sentinel <- m_sentinel %>% filter(test=="False")
