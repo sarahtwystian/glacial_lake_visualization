@@ -3,7 +3,7 @@ title: "Areas from Geojsons"
 output: html_notebook
 params:
   base_dir: "/Users/ksankaran/Desktop/glaciers"
-  geojson_dir: "data/sentinel-unet/"
+  geojson_dir: "data/results/sentinel-unet-historical/"
 ---
 
 ```{r}
@@ -71,6 +71,8 @@ ggplot(lakes) +
 ```
 
 ```{r}
-write_csv(lakes, file.path(params$base_dir, "data/lake_areas.csv"))
+lakes %>%
+  select(-geometry) %>%
+  write_csv(file.path(params$base_dir, "data/lake_areas-unet-historical.csv"))
 ```
 
