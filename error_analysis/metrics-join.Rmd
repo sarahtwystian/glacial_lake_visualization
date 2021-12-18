@@ -1,0 +1,50 @@
+---
+title: "R Notebook"
+output: html_notebook
+params:
+  metrics_dir: "~/Downloads"
+---
+
+```{r}
+library(readr)
+library(purrr)
+library(dplyr)
+library(ggplot2)
+library(stringr)
+theme_set(theme_bw())
+```
+
+```{r}
+metadata <- data.frame(
+  file = c("metrics-bing-delse.csv", "metrics-bing-unet.csv"),
+  model = c("delse", "unet"),
+  dataset = c("bing", "bing")
+)
+```
+
+```{r}
+metrics_paths <- list.files(params$metrics_dir, "metrics*", full = TRUE)
+metrics <- metrics_paths %>%
+  map_dfr(~ read_csv(.), .id = "file") %>%
+  mutate(file = basename(metrics_paths[as.integer(file)])) %>%
+  left_join(metadata) %>%
+  select(dataset, sample_id, model, prob, IoU, precision, recall, frechet)
+```
+
+```{r}
+head(metrics)
+head(eval_paths)
+
+metrics_subsets <- eval_paths %>%
+  split(.$subset) %>%
+  map_dfr(~ left_join(., metrics), .id = "subset")
+
+metrics_average <- metrics_subsets %>%
+  group_by(dataset, subset, model, prob) %>%
+  summarise(across(IoU:frechet, mean))
+```
+
+```{r}
+metrics_average
+```
+
