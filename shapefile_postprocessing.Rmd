@@ -32,6 +32,65 @@ bind_rows(bing) %>%
 ```
 
 ```
-scp sentinel_combined* azure://datadrive/snake/lakes/labeling/
-scp bing_combined* azure://datadrive/glaciers/bing_glaciers/labeling/
+scp sentinel_combined* azure://datadrive/snake/lakes/labeling/sentinel/
+scp bing_combined* azure://datadrive/snake/lakes/labeling/bing/
 ```
+
+Here is a script to split the "recent" file csv's according to the train / test
+/ val split. The inputs are (1) the current split csv file, which includes all
+the labeled glacier IDs / filenames but not whether they were a part of the
+source basin (or moreover, whether they were trained on), (2) a train test split
+file, a file specifying whether certain glacial lake IDs were present during
+training of the original model (regardless of whether the imagery are the same
+and despite the fact that the labels will have changed).
+
+```{r}
+library(readr)
+library(dplyr)
+
+recent_ids <- read_csv("../data/eval_paths/sentinel-unet_recent.csv")
+splits <- read_csv("../data/sentinel_split_ids.csv") %>%
+  mutate(sample_id = str_replace(`0`, ".tif", ""))
+```
+
+```{r}
+library(tidyr)
+
+join_data <- function(recent_ids, splits) {
+  recent_ids %>%
+    left_join(splits) %>%
+    mutate(split = replace_na(split, "new")) %>%
+    split(.$split)
+}
+```
+
+```{r}
+library(purrr)
+recent_paths <- list.files("../data/eval_paths/", full = TRUE)
+recent_ids <- map(recent_paths, ~ read_csv(.))
+names(recent_ids) <- basename(recent_paths)
+
+split_paths <- list.files("../data/", "*id", full = TRUE)
+splits <- map(split_paths, ~ read_csv(.)) %>%
+  map(~ mutate(., sample_id = str_replace(file, ".tif", "")))
+names(splits) <- basename(split_paths)
+
+for (path in names(recent_ids)) {
+  if(str_detect(path, "bing")) {
+    split_ <- splits[["bing_split_ids.csv"]]
+  } else {
+    split_ <- splits[["sentinel_split_ids.csv"]]
+  }
+    
+  result <- join_data(recent_ids[[path]], split_)
+  for (split_str in names(result)) {
+    result[[split_str]] %>%
+      select(path, sample_id) %>%
+      write_csv(str_replace(path, "recent", str_c("recent", "_", split_str)))
+  }
+}
+
+#split_paths(recent_ids, splits)
+```
+
+
