@@ -1,0 +1,87 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(readr)
+library(ggplot2)
+theme479 <- theme_minimal() + 
+  theme(
+    panel.grid.minor = element_blank(),
+    panel.background = element_rect(fill = "#f7f7f7"),
+    panel.border = element_rect(fill = NA, color = "#0c0c0c", size = 0.6),
+    legend.position = "bottom"
+  )
+theme_set(theme479)
+areas <- read_csv("../data/lake_areas-unet-historical.csv")
+```
+
+```{r}
+head(areas)
+```
+
+```{r}
+library(ggplot2)
+ggplot(areas) +
+  geom_line(aes(time, area, group = GL_ID), alpha = 0.2) +
+  scale_y_log10()
+```
+
+```{r}
+library(dplyr)
+library(purrr)
+library(broom)
+
+fits <- areas %>%
+  group_by(GL_ID) %>%
+  mutate(
+    time_num = as.numeric(time),
+    count = n()
+    ) %>%
+  filter(count > 3) %>%
+  split(.$GL_ID) %>%
+  map_dfr(~ tidy(lm(log(area) ~ time_num, .)), .id = "GL_ID")
+```
+
+```{r}
+fits %>%
+  filter(term == "time_num") %>%
+  arrange(p.value)
+```
+
+```{r}
+areas %>%
+  filter(GL_ID == "GL086853E27681N")
+```
+
+```
+scp azure:/datadrive/snake/lakes/sentinel/images/GL087401E28768N* .
+scp azure:/mnt/blobfuse/lakes/thumbnails/sentinel/GL087401E28768N*
+```
+```{r}
+library(ggrepel)
+filtered_fits <- fits %>%
+  filter(p.value < 5e-2, statistic < -28 | statistic > 5)
+
+ggplot(fits) +
+  geom_vline(xintercept = 0, col = "#d3d3d3", size = 3) +
+  geom_point(aes(statistic, -log(p.value)), size = 0.9, alpha = 0.8) +
+  geom_text_repel(data = filtered_fits, aes(statistic, -log(p.value), label = GL_ID), size = 3, force_pull = 0, force = 50, max.overlaps = 20) +
+  labs(
+    x = expression(hat(beta)[slope]/s.e.(hat(beta)[slope])),
+    y = expression(log(p[slope]))
+  ) +
+  xlim(-50, 30)
+ggsave("~/Desktop/volcano.png", dpi = 200, width = 6, height = 4)
+```
+
+
+```
+for f in $(ls $input_dir/*.tif); do
+  export base=$(basename $f)
+  export output=${base%.tif}.png
+  gdal_translate -ot Byte -of PNG -b 1 -b 2 -b 3 $f $output -outsize 100% 100%;
+  mv $output $output_dir/
+done;
+```
