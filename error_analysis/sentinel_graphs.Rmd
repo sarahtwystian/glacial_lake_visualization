@@ -1,0 +1,103 @@
+---
+title: "sentinel_graphs"
+author: "Sarah Tian"
+date: "12/7/2021"
+output: html_document
+---
+
+```{r}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(tibble)
+library(sf)
+library(stringr)
+library(superheat)
+library(stringr)
+```
+
+```{r}
+base<-"/Users/weiyushitian/Documents/Latent_Lab/error_analysis/new"
+labels <- read_sf(file.path(base, "labels", "GL_3basins_2015.shp"))
+metrics_combined<-read_csv("/Users/weiyushitian/Documents/Latent_Lab/error_analysis/new/metrics_combined.csv")
+metrics_avg<-read_csv("/Users/weiyushitian/Documents/Latent_Lab/error_analysis/new/metrics_average.csv")
+```
+
+```{r}
+m<-metrics_combined %>% 
+  separate(model,c("na","result","model","filename"),"/") %>%
+  dplyr::select(-c(na,result))%>% 
+  mutate(dataset=ifelse(str_detect(model,"bing"),"bing","sentinel")) %>%
+  mutate(test=ifelse(str_detect(model,"test"),"True","False"))
+
+metrics_sentinel<-m %>% 
+  filter(dataset=="sentinel")
+metrics_sentinel$model<-str_extract(metrics_sentinel$model,"((?<=sentinel_)(\\w+)-(\\w+)-(\\w+))|((?<=sentinel_)(\\w+)-(\\w+))|((?<=sentinel-)(\\w+)-(\\w+))|((?<=sentinel-)(\\w+))")
+
+
+sentinel_max <- metrics_sentinel %>% 
+  group_by(model,sample_id) %>% 
+  slice(which.max(IoU))
+
+sentinel_prob<-round(mean(sentinel_max$prob),1)#find the average prob corresponding to the max IoU
+
+m_sentinel<-metrics_sentinel %>% 
+  filter(prob==sentinel_prob) %>% 
+  dplyr::select(-c(sample_id,filename)) %>%
+  pivot_longer(-c(GL_ID,model,path,dataset,prob,test), names_to = "metric")
+
+sentinel <- m_sentinel %>% filter(test=="False")
+sentinel_test <- m_sentinel %>% filter(test=="True")
+```
+
+```{r}
+i='IoU'
+represent<-metrics_sentinel %>% 
+  filter(test=="True") %>% 
+  filter(prob==sentinel_prob) %>%
+  dplyr::select(sample_id,model,i)%>% 
+  pivot_wider(names_from = model, values_from = i) %>% 
+  column_to_rownames(var = "sample_id") 
+
+represent$variance = apply(represent[,1:length(colnames(represent))], 1, var)
+
+represent<-represent %>% 
+  rownames_to_column(var="sample_ID") %>% 
+  mutate(GL_ID=substr(sample_ID, 0, 15)) %>% 
+  arrange(variance) %>% 
+  mutate(metric=i) %>%     
+  mutate(quantile = ntile(metric, 5)) %>% 
+  group_by(quantile) %>%
+  sample_n(5) %>% 
+  pivot_longer(c('test-delse-historical','test-delse','test-unet-historical','test-unet'),names_to = "model", values_to = "val") 
+
+represent$model<-gsub("test-","",as.character(represent$model))
+
+ggplot(represent %>% left_join(labels),aes(x=factor(model,level=c('unet','delse-historical','delse','unet-historical')),y=val))+
+    geom_point(aes(size=Area))+
+    geom_line(aes(group=GL_ID))+
+    ggtitle(str_c(i," Across Models"))+
+    theme(plot.title = element_text(hjust = 0.5),axis.title.x = element_blank())+
+    scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+    NULL+
+    facet_wrap(~quantile)
+
+represent %>%
+  rowwise() %>%
+  mutate(path_prob=str_c(base,"/sentinel/sentinel_test-", model, "-images/", GL_ID,"_prob.png")%>% pander::pandoc.image.return())%>%
+  mutate(path_prob=str_c(path_prob,'{height=1% width=1%}')) %>%
+  mutate(model=str_c(model,'_prob')) %>%
+  dplyr::select(-c(val,metric)) %>%
+  pivot_wider(names_from = model,values_from = path_prob) %>%
+  left_join(represent %>%
+              rowwise() %>%
+              mutate(path_pred=str_c(base,"/sentinel/sentinel_test-", model, "-images/", GL_ID, "_prob.png")%>% pander::pandoc.image.return()) %>%
+              mutate(path_pred=str_c(path_pred,'{height=1% width=1%}')) %>% 
+              mutate(model=str_c(model,'_pred')) %>%
+              dplyr::select(-c(val,metric)) %>%
+              pivot_wider(names_from = model,values_from = path_pred)) %>%
+  dplyr::select("GL_ID", "quantile", "variance",'unet_prob','unet_pred','delse-historical_prob','delse-historical_pred','delse_prob','delse_pred','unet-historical_prob','unet-historical_pred') %>%
+  dplyr::select(-c(quantile,variance)) %>% 
+  pander(split.cells = c("50%", "10%", "10%","2.5%","2.5%","2.5%","2.5%","2.5%","2.5%","2.5%","2.5%"))
+```

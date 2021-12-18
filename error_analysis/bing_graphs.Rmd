@@ -1,0 +1,176 @@
+---
+title: "Bing_graph"
+author: "Sarah Tian"
+date: "12/6/2021"
+output: html_document
+---
+
+```{r}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(tibble)
+library(sf)
+library(stringr)
+library(superheat)
+library(stringr)
+library(ggrepel)
+library(knitr)
+library(purrr)
+library(raster)
+library(RStoolbox)
+library(pander)
+```
+
+```{r}
+base<-"/Users/weiyushitian/Documents/Latent_Lab/error_analysis/new"
+labels <- read_sf(file.path(base, "labels", "GL_3basins_2015.shp"))
+metrics_combined<-read_csv("/Users/weiyushitian/Documents/Latent_Lab/error_analysis/new/metrics_combined.csv")
+metrics_avg<-read_csv("/Users/weiyushitian/Documents/Latent_Lab/error_analysis/new/metrics_average.csv")
+```
+
+```{r}
+m<-metrics_combined %>% 
+  separate(model,c("na","result","model","filename"),"/") %>%
+  dplyr::select(-c(na,result))%>% 
+  mutate(dataset=ifelse(str_detect(model,"bing"),"bing","sentinel")) %>%
+  mutate(test=ifelse(str_detect(model,"test"),"True","False"))
+
+metrics_bing<-m %>% 
+  filter(dataset=="bing")
+metrics_bing$model<-str_extract(metrics_bing$model,"((?<=bing_)(\\w+)-(\\w+)-(\\w+))|((?<=bing_)(\\w+)-(\\w+))|((?<=bing-)(\\w+)-(\\w+))|((?<=bing-)(\\w+))")
+
+
+bing_max <- metrics_bing %>% 
+  group_by(model,sample_id) %>% 
+  slice(which.max(IoU))
+
+bing_prob<-round(mean(bing_max$prob),1)#find the average prob corresponding to the max IoU
+
+m_bing<-metrics_bing %>% 
+  filter(prob==bing_prob) %>% 
+  dplyr::select(-sample_id) %>%
+  pivot_longer(-c(GL_ID,model,path,dataset,prob,test,filename), names_to = "metric")
+
+bing <- m_bing %>% filter(test=="False")
+bing_test <- m_bing %>% filter(test=="True")
+```
+
+```{r,warning=FALSE,message=FALSE}
+metrics<-c("IoU","precision","recall","frechet")
+
+for(i in metrics){
+  metric_bing_test<-metrics_bing %>% 
+    filter(test=="True") %>% 
+    filter(prob==bing_prob) %>%
+    dplyr::select(sample_id,model,i)%>% 
+    pivot_wider(names_from = model, values_from = i) %>% 
+    column_to_rownames(var = "sample_id") 
+  
+  metric_bing_test$variance = apply(metric_bing_test[,1:length(colnames(metric_bing_test))], 1, var)
+  
+  cur<-metric_bing_test %>% 
+    rownames_to_column(var="GL_ID") %>% 
+    arrange(variance) %>% 
+    mutate(metric=i) %>%     
+    mutate(quantile = ntile(metric, 5)) %>% 
+    group_by(quantile) %>%
+    sample_n(5) %>% 
+    pivot_longer(c('test-delse-historical','test-delse','test-unet-historical','test-unet'),names_to = "model", values_to = "val") %>% 
+    left_join(labels)
+  
+  cur$model<-gsub("test-","",as.character(cur$model))
+  
+  
+  print(ggplot(cur,aes(x=factor(model,level=c('unet','delse-historical','delse','unet-historical')),y=val))+
+    geom_point(aes(size=Area))+
+    geom_line(aes(group=GL_ID))+
+    ggtitle(str_c(i," Across Models"))+
+    theme(plot.title = element_text(hjust = 0.5),axis.title.x = element_blank())+
+    scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+    NULL+
+    facet_wrap(~quantile))
+    
+  
+  superheat(metric_bing_test %>% dplyr::select(-variance), 
+            order.rows = order(metric_bing_test$variance), 
+            left.label = "none", 
+            pretty.order.rows = TRUE, 
+            bottom.label.text.size = 3,
+            title = str_c("Superheat for ",i))
+}
+
+```
+
+```{r}
+i='IoU'
+represent<-metrics_bing %>% 
+  filter(test=="True") %>% 
+  filter(prob==bing_prob) %>%
+  dplyr::select(sample_id,model,i)%>% 
+  pivot_wider(names_from = model, values_from = i) %>% 
+  column_to_rownames(var = "sample_id") 
+
+represent$variance = apply(represent[,1:length(colnames(represent))], 1, var)
+
+represent<-represent %>% 
+  rownames_to_column(var="GL_ID") %>% 
+  arrange(variance) %>% 
+  mutate(metric=i) %>%     
+  mutate(quantile = ntile(metric, 5)) %>% 
+  group_by(quantile) %>%
+  sample_n(5) %>% 
+  pivot_longer(c('test-delse-historical','test-delse','test-unet-historical','test-unet'),names_to = "model", values_to = "val") 
+
+represent$model<-gsub("test-","",as.character(represent$model))
+#represent$model<-factor(represent$model,level=c('unet','delse-historical','delse','unet-historical'))
+
+# represent %>% 
+#   rowwise() %>% 
+#   mutate(path=list(c(str_c(base,"/bing/bing_", model, "-images/", GL_ID,"_prob.png"),str_c(base,"/bing/bing_", model, "-images/", GL_ID, "_prob.png")))%>% pander::pandoc.image.return()) %>% 
+#   dplyr::select(-c(val,metric)) %>%  
+#   pivot_wider(names_from = model,values_from = path) %>% 
+#   dplyr::select("GL_ID", "quantile", "variance",'test-unet','test-delse-historical','test-delse','test-unet-historical') %>% 
+#   pander()
+ggplot(represent %>% left_join(labels),aes(x=factor(model,level=c('unet','delse-historical','delse','unet-historical')),y=val))+
+    geom_point(aes(size=Area))+
+    geom_line(aes(group=GL_ID))+
+    ggtitle(str_c(i," Across Models"))+
+    theme(plot.title = element_text(hjust = 0.5),axis.title.x = element_blank())+
+    scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+    NULL+
+    facet_wrap(~quantile)
+
+# represent %>%
+#   rowwise() %>%
+#   mutate(path_prob=str_c(base,"/bing/bing_test-", model, "-images/", GL_ID,"_prob.png")%>% pander::pandoc.image.return())%>%
+#   mutate(path_prob=str_c(path_prob,'{height=1% width=1%}')) %>%
+#   mutate(model=str_c(model,'_prob')) %>%
+#   dplyr::select(-c(val,metric)) %>%
+#   pivot_wider(names_from = model,values_from = path_prob) %>%
+#   left_join(represent %>%
+#               rowwise() %>%
+#               mutate(path_pred=str_c(base,"/bing/bing_test-", model, "-images/", GL_ID, "_prob.png")%>% pander::pandoc.image.return()) %>%
+#               mutate(path_pred=str_c(path_pred,'{height=1% width=1%}')) %>% 
+#               mutate(model=str_c(model,'_pred')) %>%
+#               dplyr::select(-c(val,metric)) %>%
+#               pivot_wider(names_from = model,values_from = path_pred)) %>%
+#   dplyr::select("GL_ID", "quantile", "variance",'unet_prob','unet_pred','delse-historical_prob','delse-historical_pred','delse_prob','delse_pred','unet-historical_prob','unet-historical_pred') %>%
+#   dplyr::select(-c(quantile,variance)) %>% 
+#   pander(split.cells = c("50%", "10%", "10%","2.5%","2.5%","2.5%","2.5%","2.5%","2.5%","2.5%","2.5%"))
+#   
+#   #order(colnames(t)[c(5:length(colnames(t))-1)])
+# 
+# 
+# represent %>% 
+#   rowwise() %>% 
+#   mutate(path_prob=str_c(base,"/bing/bing-", model, "-images/", GL_ID,"_prob.png")%>% pander::pandoc.image.return())%>% 
+#   mutate(model=str_c(model,'_prob')) %>% 
+#   dplyr::select(-c(val,metric)) %>%  
+#   pivot_wider(names_from = model,values_from = path_prob) %>% 
+#   pander()
+# par(mfrow=c(1,2))
+# include_graphics("/Users/weiyushitian/Documents/Latent_Lab/error_analysis/new/bing/bing_test-unet-historical-images/GL085651E28161N_prob.png","/Users/weiyushitian/Documents/Latent_Lab/error_analysis/new/bing/bing_test-unet-historical-images/GL087722E27683N_prob.png")
+# b<-image("/Users/weiyushitian/Documents/Latent_Lab/error_analysis/new/bing/bing_test-unet-historical-images/GL087722E27683N_prob.png")
+```

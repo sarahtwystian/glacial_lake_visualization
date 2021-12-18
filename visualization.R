@@ -10,7 +10,15 @@ library(DT)
 library(tidyr)
 library(shinyjs)
 
-lakes <- read_csv("lake_areas.csv")
+
+orig_lakes <- read_csv("lake_areas-unet-historical.csv")
+t<-orig_lakes %>% 
+  group_by(GL_ID) %>% 
+  summarise(slope = lm(area ~ time)$coefficients['time'])
+lakes<-orig_lakes %>% 
+  left_join(t) %>% 
+  mutate(slope = coalesce(slope, 0)) %>% 
+  mutate(trend=ifelse(slope>0,"increase",ifelse(slope==0,"constant","decrease")))
 
 ui <- fluidPage(
   sidebarPanel(
@@ -42,7 +50,24 @@ ui <- fluidPage(
                          actionButton("reset_id2", "Reset")
                          
                          
+                ),
+                tabPanel("Trend",
+                         
+                         selectizeInput(
+                           inputId = "trend",
+                           label = "1. Trend",
+                           choices = c("Please choose the trend that you are interested in" = "", unique(lakes$trend)),
+                           multiple = TRUE),
+                         
+                         selectizeInput(inputId = "lakeID_3",
+                                        label = "2. Lake ID",
+                                        choices = c("Please choose some lake IDs" = "",lakes$GL_ID),
+                                        multiple = TRUE),
+                         actionButton("reset_trend", "Reset")
+                        
+                         
                 )
+
                 #actionButton("go", "Plot")
                 
     ),
@@ -68,6 +93,17 @@ server <- function(input, output){
     updateSelectizeInput(inputId = "lakeID_1", choices = c("Please choose some lake IDs" = "",choices))
   })
   
+  id_3 <- reactive({
+    ########update selections
+    if(length(input$trend)!=0){
+      filter(lakes, trend %in% input$trend)
+    }
+  })
+  observeEvent(id_3(), {
+    choices <- unique(id_3()$GL_ID)
+    updateSelectizeInput(inputId = "lakeID_3", choices = c("Please choose some lake IDs" = "",choices))
+  })
+  
   
   
   
@@ -84,6 +120,12 @@ server <- function(input, output){
     
   })
   
+  observeEvent(input$reset_trend, {
+    shinyjs::reset("trend")
+    shinyjs::reset("lakeID_3")
+    shinyjs::reset("plot")
+    
+  })
   
   
   ######
@@ -98,17 +140,32 @@ server <- function(input, output){
         df<-lakes
       }
       brushedPoints(df, input$plot_brush, "time", "area", allRows = TRUE) %>%
-        select(GL_ID, time, area, Sub_Basin, selected_) %>%
+        dplyr::select(GL_ID, time, area, Sub_Basin, selected_) %>%
         filter(selected_==TRUE)
       
-    }else{
+    }
+    else if (input$tabset == "Trend"){
+      print(input$trend)
+      if(length(input$trend)!=0&length(input$lakeID_3)==0){
+        df<-filter(lakes,trend%in%input$trend)
+      }else if(length(input$trend)!=0&length(input$lakeID_3)!=0){
+        df<-filter(lakes, (GL_ID %in% input$lakeID_3) & (trend %in% input$trend))
+      }else{
+        df<-lakes
+      }
+      brushedPoints(df, input$plot_brush, "time", "area", allRows = TRUE) %>%
+        dplyr::select(GL_ID, time, area, Sub_Basin, selected_) %>%
+        filter(selected_==TRUE)
+      
+    }
+    else{
       if(length(input$lakeID_2)!=0){
         df<-filter(lakes, GL_ID %in% input$lakeID_2)
       }else{
         df<-lakes
       }
       brushedPoints(df, input$plot_brush, "time", "area", allRows = TRUE) %>%
-        select(GL_ID, time, area, Sub_Basin, selected_) %>%
+        dplyr::select(GL_ID, time, area, Sub_Basin, selected_) %>%
         filter(selected_==TRUE)
     }
     
@@ -126,14 +183,14 @@ server <- function(input, output){
       y$selected_<-rep(TRUE, nrow(y))
       lakes<-left_join(lakes,y,by=c("GL_ID","time","area","Sub_Basin")) %>% 
         mutate(brush = ifelse(is.na(selected_), sel, selected_)) %>% 
-        select(GL_ID, time, area, Sub_Basin, brush)
+        dplyr::select(GL_ID, time, area, Sub_Basin, brush)
     }
     
     
     if (length(input$sub_basin)!=0 & length(input$lakeID_1)==0){
       
       ggplot(data=filter(lakes, Sub_Basin %in% input$sub_basin), aes(time, area)) +
-        geom_point(aes(color=brush), size = 1) +
+        geom_point(aes(color=brush), size = 1, show.legend = FALSE) +
         geom_line(aes(group = GL_ID), size = 0.7, alpha = 0.5) +
         scale_y_log10()+
         ylim(input$area[1],input$area[2]) +
@@ -142,7 +199,7 @@ server <- function(input, output){
     }
     else if(length(input$sub_basin)!=0 & length(input$lakeID_1)!=0){
       ggplot(data=filter(lakes, (GL_ID %in% input$lakeID_1) & (Sub_Basin %in% input$sub_basin)), aes(time, area)) +
-        geom_point(aes(color=brush), size = 1) +
+        geom_point(aes(color=brush), size = 1, show.legend = FALSE) +
         geom_line(aes(group = GL_ID), size = 0.7, alpha = 0.5) +
         scale_y_log10()+
         ylim(input$area[1],input$area[2]) +
@@ -154,10 +211,39 @@ server <- function(input, output){
     else if(length(input$lakeID_2)!=0){
       
       ggplot(data=filter(lakes, GL_ID %in% input$lakeID_2), aes(time, area)) +
-        geom_point(aes(color=brush), size = 1) +
+        geom_point(aes(color=brush), size = 1, show.legend = FALSE) +
         geom_line(aes(group = GL_ID), size = 0.7, alpha = 0.5) +
         scale_y_log10()+
         ylim(input$area[1],input$area[2]) +
+        xlab("Year")+
+        scale_color_manual(values=c("black","red"))
+    }
+    
+    else if (length(input$trend)!=0 & length(input$lakeID_3)==0){
+      
+      ggplot(data=filter(lakes, trend %in% input$trend), aes(time, area)) +
+        geom_point(aes(color=brush), size = 1, show.legend = FALSE) +
+        geom_line(aes(group = GL_ID), size = 0.7, alpha = 0.5) +
+        scale_y_log10()+
+        ylim(input$area[1],input$area[2]) +
+        xlab("Year")+
+        scale_color_manual(values=c("black","red"))
+    }
+    else if(length(input$trend)!=0 & length(input$lakeID_3)!=0){
+      ggplot(data=filter(lakes, (GL_ID %in% input$lakeID_3) & (trend %in% input$trend)), aes(time, area)) +
+        geom_point(aes(color=brush), size = 1, show.legend = FALSE) +
+        geom_line(aes(group = GL_ID), size = 0.7, alpha = 0.5) +
+        scale_y_log10()+
+        ylim(input$area[1],input$area[2]) +  id <- reactive({
+          ########update selections
+          if(length(input$sub_basin)!=0){
+            filter(lakes, Sub_Basin %in% input$sub_basin)
+          }
+        })
+        observeEvent(id(), {
+          choices <- unique(id()$GL_ID)
+          updateSelectizeInput(inputId = "lakeID_1", choices = c("Please choose some lake IDs" = "",choices))
+        })
         xlab("Year")+
         scale_color_manual(values=c("black","red"))
     }
@@ -176,7 +262,7 @@ server <- function(input, output){
   
   output$table = DT::renderDataTable({
     x <- selected() %>%
-      select(GL_ID,time) %>% 
+      dplyr::select(GL_ID,time) %>% 
       top_n(1e3)
     
     if (nrow(x) == 0) {
