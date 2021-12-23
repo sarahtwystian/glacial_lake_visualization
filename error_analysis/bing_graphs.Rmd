@@ -3,6 +3,9 @@ title: "Bing_graph"
 author: "Sarah Tian"
 date: "12/6/2021"
 output: html_document
+params:
+  #base_dir: "/Users/weiyushitian/Documents/Latent_Lab/error_analysis/new"
+  base_dir: "~/Desktop/glaciers/data/"
 ---
 
 ```{r}
@@ -20,27 +23,31 @@ library(knitr)
 library(purrr)
 library(raster)
 library(RStoolbox)
-library(pander)
+theme424 <- theme_minimal() + 
+  theme(
+    panel.grid.minor = element_blank(),
+    panel.background = element_rect(fill = "#f7f7f7"),
+    panel.border = element_rect(fill = NA, color = "#0c0c0c", size = 0.6),
+    axis.text = element_text(size = 12),
+    strip.text = element_text(size = 16),
+    axis.title = element_text(size = 18),
+    legend.text = element_text(size = 16),
+    legend.title = element_text(size = 18),
+    legend.position = "bottom",
+  )
+theme_set(theme424)
+
 ```
 
 ```{r}
-base<-"/Users/weiyushitian/Documents/Latent_Lab/error_analysis/new"
-labels <- read_sf(file.path(base, "labels", "GL_3basins_2015.shp"))
-metrics_combined<-read_csv("/Users/weiyushitian/Documents/Latent_Lab/error_analysis/new/metrics_combined.csv")
-metrics_avg<-read_csv("/Users/weiyushitian/Documents/Latent_Lab/error_analysis/new/metrics_average.csv")
+labels <- read_sf(file.path(params$base, "labels", "GL_3basins_2015.shp"))
+metrics_combined <- read_csv(file.path(params$base, "metrics_combined.csv"))
+metrics_avg <- read_csv(file.path(params$base, "metrics_average.csv")) 
 ```
 
 ```{r}
-m<-metrics_combined %>% 
-  separate(model,c("na","result","model","filename"),"/") %>%
-  dplyr::select(-c(na,result))%>% 
-  mutate(dataset=ifelse(str_detect(model,"bing"),"bing","sentinel")) %>%
-  mutate(test=ifelse(str_detect(model,"test"),"True","False"))
-
-metrics_bing<-m %>% 
+metrics_bing <- metrics_combined %>% 
   filter(dataset=="bing")
-metrics_bing$model<-str_extract(metrics_bing$model,"((?<=bing_)(\\w+)-(\\w+)-(\\w+))|((?<=bing_)(\\w+)-(\\w+))|((?<=bing-)(\\w+)-(\\w+))|((?<=bing-)(\\w+))")
-
 
 bing_max <- metrics_bing %>% 
   group_by(model,sample_id) %>% 
@@ -61,7 +68,7 @@ bing_test <- m_bing %>% filter(test=="True")
 metrics<-c("IoU","precision","recall","frechet")
 
 for(i in metrics){
-  metric_bing_test<-metrics_bing %>% 
+  metric_bing_test <- metrics_bing %>% 
     filter(test=="True") %>% 
     filter(prob==bing_prob) %>%
     dplyr::select(sample_id,model,i)%>% 
@@ -174,3 +181,90 @@ ggplot(represent %>% left_join(labels),aes(x=factor(model,level=c('unet','delse-
 # include_graphics("/Users/weiyushitian/Documents/Latent_Lab/error_analysis/new/bing/bing_test-unet-historical-images/GL085651E28161N_prob.png","/Users/weiyushitian/Documents/Latent_Lab/error_analysis/new/bing/bing_test-unet-historical-images/GL087722E27683N_prob.png")
 # b<-image("/Users/weiyushitian/Documents/Latent_Lab/error_analysis/new/bing/bing_test-unet-historical-images/GL087722E27683N_prob.png")
 ```
+
+```{r}
+set.seed(123)
+metrics_long <- metrics_bing %>% 
+  filter(
+    (prob > 0.95 & model != "delse-historical") | (prob == 0.05 & model == "delse-historical"),
+    subset %in% c("bing_recent_test", "bing_test")
+  ) %>%
+  pivot_longer(IoU:frechet, names_to="metric") %>%
+  left_join(labels, by = c("sample_id" = "GL_ID"))
+
+iou_quantiles <- metrics_long %>%
+  filter(metric == "IoU") %>%
+  group_by(sample_id, subset, label) %>%
+  summarise(mean_value = mean(value)) %>%
+  group_by(subset, label) %>%
+  mutate(quantile = ntile(mean_value, 5))
+  
+metrics_long <- metrics_long %>%
+  left_join(iou_quantiles %>% dplyr::select(sample_id, quantile))
+
+sample_ids <- iou_quantiles %>%
+  filter(subset == "bing_recent_test", label == "recent") %>%
+  group_by(quantile) %>%
+  sample_n(5)
+
+subsample <- metrics_long %>%
+  filter(sample_id %in% sample_ids$sample_id) %>%
+  mutate(
+    model = factor(model, c('unet', 'delse-historical', 'delse', 'snake', 'unet-historical')),
+    metric = factor(metric, c("IoU", "precision", "recall", "frechet"))
+    ) %>%
+  filter(subset == "bing_recent_test", label == "recent")
+```
+
+
+```{r, fig.width = 14, fig.height = 8}
+ggplot(subsample, aes(model, value)) +
+  geom_line(aes(group = sample_id, size = .5 * Area), col = "#A6A6A6") +
+  geom_point(aes(size = Area), col = "#404040") +
+  facet_grid(metric ~ quantile, scales = "free_y") +
+  labs(
+    size = "Lake Area",
+    title = str_c("Model Performance by Quantile (Bing)"),
+    y = "Metric Value"
+  ) +
+  scale_size(range = c(.5, 5)) +
+  scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.title.x = element_blank(),
+    strip.text.y = element_text(angle = 0),
+    plot.title = element_text(size = 20)
+  )
+ggsave(file.path(params$base_dir, "metrics.png"), dpi = 150)
+```
+
+```{r}
+library(fs)
+
+for (qn in sample_ids$quantile) {
+  cur_ids <- sample_ids %>%
+    filter(quantile == qn) %>%
+    pull(sample_id)
+  qn_dir <- file.path(params$base_dir, "bing_preds", qn)
+  dir.create(qn_dir)
+
+  for (id in cur_ids) {
+    cur_images <- list.files(
+      file.path(params$base_dir, "bing_preds"), 
+      str_c(id, "_pred*"), 
+      recursive = TRUE,
+      full = TRUE
+    )
+    
+    for (im in cur_images) {
+      im_path <- path_split(im)[[1]]
+      cur_model <- im_path[length(im_path) - 1]
+      model_dir <- file.path(qn_dir, cur_model)
+      dir_create(model_dir)
+      file.copy(im, model_dir, recursive = TRUE)
+      
+    }
+  }
+}
+```
+
