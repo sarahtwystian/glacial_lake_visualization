@@ -2,6 +2,9 @@
 title: "sentinel_graphs"
 author: "Sarah Tian"
 date: "12/7/2021"
+params:
+  #base_dir: "/Users/weiyushitian/Documents/Latent_Lab/error_analysis/new"
+  base_dir: "~/Desktop/glaciers/data/"
 output: html_document
 ---
 
@@ -18,23 +21,14 @@ library(stringr)
 ```
 
 ```{r}
-base<-"/Users/weiyushitian/Documents/Latent_Lab/error_analysis/new"
-labels <- read_sf(file.path(base, "labels", "GL_3basins_2015.shp"))
-metrics_combined<-read_csv("/Users/weiyushitian/Documents/Latent_Lab/error_analysis/new/metrics_combined.csv")
-metrics_avg<-read_csv("/Users/weiyushitian/Documents/Latent_Lab/error_analysis/new/metrics_average.csv")
+labels <- read_sf(file.path(params$base, "labels", "GL_3basins_2015.shp"))
+metrics_combined <- read_csv(file.path(params$base, "metrics_combined.csv"))
+metrics_avg <- read_csv(file.path(params$base, "metrics_average.csv")) 
 ```
 
 ```{r}
-m<-metrics_combined %>% 
-  separate(model,c("na","result","model","filename"),"/") %>%
-  dplyr::select(-c(na,result))%>% 
-  mutate(dataset=ifelse(str_detect(model,"bing"),"bing","sentinel")) %>%
-  mutate(test=ifelse(str_detect(model,"test"),"True","False"))
-
-metrics_sentinel<-m %>% 
+metrics_sentinel<-metrics_combined %>% 
   filter(dataset=="sentinel")
-metrics_sentinel$model<-str_extract(metrics_sentinel$model,"((?<=sentinel_)(\\w+)-(\\w+)-(\\w+))|((?<=sentinel_)(\\w+)-(\\w+))|((?<=sentinel-)(\\w+)-(\\w+))|((?<=sentinel-)(\\w+))")
-
 
 sentinel_max <- metrics_sentinel %>% 
   group_by(model,sample_id) %>% 
@@ -100,4 +94,62 @@ represent %>%
   dplyr::select("GL_ID", "quantile", "variance",'unet_prob','unet_pred','delse-historical_prob','delse-historical_pred','delse_prob','delse_pred','unet-historical_prob','unet-historical_pred') %>%
   dplyr::select(-c(quantile,variance)) %>% 
   pander(split.cells = c("50%", "10%", "10%","2.5%","2.5%","2.5%","2.5%","2.5%","2.5%","2.5%","2.5%"))
+```
+
+
+```{r}
+set.seed(123)
+metrics_long <- metrics_sentinel %>% 
+  filter(
+    (prob > 0.95 & model != "delse-historical") | (prob == 0.05 & model == "delse-historical") | model == "snake",
+    subset %in% c("sentinel_recent_new", "sentinel_test")
+  ) %>%
+  mutate(GL_ID = str_extract(sample_id, "[:alnum:]+")) %>%
+  pivot_longer(IoU:frechet, names_to="metric") %>%
+  left_join(labels)
+
+iou_quantiles <- metrics_long %>%
+  filter(metric == "IoU") %>%
+  group_by(sample_id, subset, label) %>%
+  summarise(mean_value = mean(value)) %>%
+  group_by(subset, label) %>%
+  mutate(quantile = ntile(mean_value, 5))
+  
+metrics_long <- metrics_long %>%
+  left_join(iou_quantiles %>% dplyr::select(sample_id, quantile))
+
+sample_ids <- iou_quantiles %>%
+  filter(subset %in% "sentinel_recent_new", label == "recent") %>%
+  group_by(quantile) %>%
+  sample_n(5)
+
+subsample <- metrics_long %>%
+  filter(sample_id %in% sample_ids$sample_id) %>%
+  mutate(
+    model = factor(model, c('unet', 'delse-historical', 'delse', 'snake', 'unet-historical')),
+    metric = factor(metric, c("IoU", "precision", "recall", "frechet"))
+    ) %>%
+  filter(subset == "sentinel_recent_new", label == "recent")
+```
+
+
+```{r, fig.width = 14, fig.height = 8}
+ggplot(subsample, aes(model, value)) +
+  geom_line(aes(group = sample_id, size = .5 * Area), col = "#A6A6A6") +
+  geom_point(aes(size = Area), col = "#404040") +
+  facet_grid(metric ~ quantile, scales = "free_y") +
+  labs(
+    size = "Lake Area (km^2)",
+    title = str_c("Model Performance by Quantile (Sentinel)"),
+    y = "Metric Value"
+  ) +
+  scale_size(range = c(.5, 5)) +
+  scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.title.x = element_blank(),
+    strip.text.y = element_text(angle = 0),
+    plot.title = element_text(size = 20)
+  )
+#ggsave(file.path(params$base_dir, "metrics.png"), dpi = 150)
 ```

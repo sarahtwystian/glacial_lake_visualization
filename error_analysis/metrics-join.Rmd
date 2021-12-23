@@ -32,7 +32,7 @@ metrics <- metrics_paths %>%
   map_dfr(~ read_csv(.), .id = "file") %>%
   mutate(file = basename(metrics_paths[as.integer(file)])) %>%
   left_join(metadata) %>%
-  select(dataset, sample_id, model, label, prob, IoU, precision, recall, frechet)
+  dplyr::select(dataset, sample_id, model, label, prob, IoU, precision, recall, frechet)
 ```
 ```{r}
 eval_paths <- read_csv(file.path(params$metrics_dir, "eval_paths.csv"))
@@ -44,6 +44,11 @@ metrics_average <- metrics_subsets %>%
   group_by(dataset, subset, model, label, prob) %>%
   summarise(across(IoU:frechet, mean))
 ```
+
+You need to regenerate the metrics file for delse-historical on sentinel. (with the new geo-prob cutoff)
+Then remake the errors plot for sentinel
+Then remake the zip file for sentinel
+and share
 
 ```{r}
 metrics_average %>%
@@ -57,7 +62,7 @@ metrics_average %>%
   group_by(dataset, subset, model, label) %>%
   filter(
     str_detect(subset, "test|new"),
-    (prob > 0.95 & model != "delse-historical") | (prob == 0.05 & model == "delse-historical"),
+    (prob > 0.95 & model != "delse-historical") | (prob == 0.05 & model == "delse-historical") | (model == "snake" & prob == 0.6 & dataset == "sentinel"),
     (str_detect(subset, "recent") & label == "recent") | (!str_detect(subset, "recent") & label == "ICIMOD")
   ) %>%
   arrange(subset, -IoU) %>%
@@ -66,11 +71,11 @@ metrics_average %>%
 ```
 
 ```{r}
-read_csv("~/Desktop/metrics_average.csv") %>%
-  filter(model == "snake")
+write_csv(metrics_subsets, file.path(params$metrics_dir, "metrics_combined.csv"))
 ```
 
 ```{r}
-write_csv(metrics_subsets, file.path(params$metrics_dir, "metrics_combined.csv"))
+read_csv("~/Downloads/metrics_average.csv") %>%
+  arrange(dataset, subset, model)
 ```
 

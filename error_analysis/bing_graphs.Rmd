@@ -182,6 +182,8 @@ ggplot(represent %>% left_join(labels),aes(x=factor(model,level=c('unet','delse-
 # b<-image("/Users/weiyushitian/Documents/Latent_Lab/error_analysis/new/bing/bing_test-unet-historical-images/GL087722E27683N_prob.png")
 ```
 
+The block below adapts everything above for the newer metrics combined file.
+
 ```{r}
 set.seed(123)
 metrics_long <- metrics_bing %>% 
@@ -223,7 +225,7 @@ ggplot(subsample, aes(model, value)) +
   geom_point(aes(size = Area), col = "#404040") +
   facet_grid(metric ~ quantile, scales = "free_y") +
   labs(
-    size = "Lake Area",
+    size = "Lake Area (km ^ 2)",
     title = str_c("Model Performance by Quantile (Bing)"),
     y = "Metric Value"
   ) +
@@ -238,6 +240,9 @@ ggplot(subsample, aes(model, value)) +
 ggsave(file.path(params$base_dir, "metrics.png"), dpi = 150)
 ```
 
+This tries to create new directories with images for each of the lines in the
+graph above.
+
 ```{r}
 library(fs)
 
@@ -245,7 +250,7 @@ for (qn in sample_ids$quantile) {
   cur_ids <- sample_ids %>%
     filter(quantile == qn) %>%
     pull(sample_id)
-  qn_dir <- file.path(params$base_dir, "bing_preds", qn)
+  qn_dir <- file.path(params$base_dir, "bing_preds", "bing_quantiles", qn)
   dir.create(qn_dir)
 
   for (id in cur_ids) {
@@ -268,3 +273,9 @@ for (qn in sample_ids$quantile) {
 }
 ```
 
+
+To invert colors, you can use this (in imagemagik / terminal).
+
+```{r}
+for f in $(ls -R */*delse*/*.png); do convert $f -channel RGB -negate $f; done
+```
