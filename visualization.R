@@ -21,9 +21,26 @@ lakes<-orig_lakes %>%
   mutate(trend=ifelse(slope>0,"increase",ifelse(slope==0,"constant","decrease")))
 
 ui <- fluidPage(
+  tags$head(
+  # Note the wrapping of the string in HTML()
+  tags$style(HTML("
+      .irs-grid-text {
+        font-size: 15px;
+      }
+      .irs--shiny .irs-single {
+        font-size: 15px;
+      }
+      .irs--shiny .irs-min {
+        font-size: 15px;
+      }
+      .irs--shiny .irs-max {
+        font-size: 15px;
+      }
+      "))
+),
   sidebarPanel(
     useShinyjs(),
-    sliderInput("area", "Area:", min = 0, max = max(lakes$area), value = c(0,max(lakes$area)), step=0.001),
+    sliderInput("area", "Area:", min = 0, max = round(max(lakes$area), digits = 3), value = c(0,round(max(lakes$area), digits = 3)), step=0.001),
     tabsetPanel(id = "tabset",
                 tabPanel("Sub basin",
                          
@@ -195,7 +212,8 @@ server <- function(input, output){
         scale_y_log10()+
         ylim(input$area[1],input$area[2]) +
         xlab("Year")+
-        scale_color_manual(values=c("black","red"))
+        scale_color_manual(values=c("black","red"))+
+        theme(axis.text = element_text(size=12), axis.title=element_text(size=20,face="bold"))
     }
     else if(length(input$sub_basin)!=0 & length(input$lakeID_1)!=0){
       ggplot(data=filter(lakes, (GL_ID %in% input$lakeID_1) & (Sub_Basin %in% input$sub_basin)), aes(time, area)) +
@@ -204,7 +222,8 @@ server <- function(input, output){
         scale_y_log10()+
         ylim(input$area[1],input$area[2]) +
         xlab("Year")+
-        scale_color_manual(values=c("black","red"))
+        scale_color_manual(values=c("black","red"))+
+        theme(axis.text = element_text(size=12), axis.title=element_text(size=20,face="bold"))
     }
     
     
@@ -216,7 +235,9 @@ server <- function(input, output){
         scale_y_log10()+
         ylim(input$area[1],input$area[2]) +
         xlab("Year")+
-        scale_color_manual(values=c("black","red"))
+        scale_color_manual(values=c("black","red"))+
+        theme(axis.text = element_text(size=12), axis.title=element_text(size=20,face="bold"))
+      
     }
     
     else if (length(input$trend)!=0 & length(input$lakeID_3)==0){
@@ -227,7 +248,9 @@ server <- function(input, output){
         scale_y_log10()+
         ylim(input$area[1],input$area[2]) +
         xlab("Year")+
-        scale_color_manual(values=c("black","red"))
+        scale_color_manual(values=c("black","red"))+
+        theme(axis.text = element_text(size=12), axis.title=element_text(size=20,face="bold"))
+      
     }
     else if(length(input$trend)!=0 & length(input$lakeID_3)!=0){
       ggplot(data=filter(lakes, (GL_ID %in% input$lakeID_3) & (trend %in% input$trend)), aes(time, area)) +
@@ -245,7 +268,9 @@ server <- function(input, output){
           updateSelectizeInput(inputId = "lakeID_1", choices = c("Please choose some lake IDs" = "",choices))
         })
         xlab("Year")+
-        scale_color_manual(values=c("black","red"))
+        scale_color_manual(values=c("black","red"))+
+        theme(axis.text = element_text(size=12), axis.title=element_text(size=20,face="bold"))
+        
     }
     
     else{
@@ -255,8 +280,10 @@ server <- function(input, output){
         scale_y_log10() +
         ylim(input$area[1],input$area[2]) +
         xlab("Year")+
-        scale_color_manual(values=c("black","red"))
+        scale_color_manual(values=c("black","red"))+
+        theme(axis.text = element_text(size=12), axis.title=element_text(size=20,face="bold"))
     }
+    
   })
   
   
