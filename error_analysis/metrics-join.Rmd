@@ -16,10 +16,14 @@ theme_set(theme_bw())
 
 ```{r}
 metadata <- data.frame(
-  file = c("metrics-bing-delse.csv", "metrics-bing-unet.csv"),
-  model = c("delse", "unet"),
-  dataset = c("bing", "bing")
+  file = c("metrics_bing_delse-historical.csv", "metrics_bing_delse.csv", "metrics_bing_unet-historical.csv", "metrics_bing_unet.csv", "metrics_bing_snake.csv", "metrics_sentinel_delse-historical.csv", "metrics_sentinel_delse.csv", "metrics_sentinel_unet-historical.csv", "metrics_sentinel_unet.csv", "metrics_sentinel_snake.csv"),
+  model = c("delse-historical", "delse", "unet-historical", "unet", "snake", "delse-historical", "delse", "unet-historical", "unet", "snake"),
+  dataset = rep(c("bing", "sentinel"), each = 5)
 )
+
+metadata <- rbind(metadata, metadata)
+metadata$file[11:20] <- str_replace(metadata$file[11:20], ".csv", "_recent.csv")
+metadata$label <- rep(c("ICIMOD", "recent"), each = 10)
 ```
 
 ```{r}
@@ -28,23 +32,45 @@ metrics <- metrics_paths %>%
   map_dfr(~ read_csv(.), .id = "file") %>%
   mutate(file = basename(metrics_paths[as.integer(file)])) %>%
   left_join(metadata) %>%
-  select(dataset, sample_id, model, prob, IoU, precision, recall, frechet)
+  select(dataset, sample_id, model, label, prob, IoU, precision, recall, frechet)
 ```
-
 ```{r}
-head(metrics)
-head(eval_paths)
-
+eval_paths <- read_csv(file.path(params$metrics_dir, "eval_paths.csv"))
 metrics_subsets <- eval_paths %>%
   split(.$subset) %>%
   map_dfr(~ left_join(., metrics), .id = "subset")
 
 metrics_average <- metrics_subsets %>%
-  group_by(dataset, subset, model, prob) %>%
+  group_by(dataset, subset, model, label, prob) %>%
   summarise(across(IoU:frechet, mean))
 ```
 
 ```{r}
-metrics_average
+metrics_average %>%
+  group_by(dataset, subset, model, label) %>%
+  filter(
+    str_detect(subset, "val"),
+    IoU == max(IoU)
+    )
+
+metrics_average %>%
+  group_by(dataset, subset, model, label) %>%
+  filter(
+    str_detect(subset, "test|new"),
+    (prob > 0.95 & model != "delse-historical") | (prob == 0.05 & model == "delse-historical"),
+    (str_detect(subset, "recent") & label == "recent") | (!str_detect(subset, "recent") & label == "ICIMOD")
+  ) %>%
+  arrange(subset, -IoU) %>%
+  mutate(across(prob:frechet, ~ round(., 3))) %>%
+  write_csv(file.path(params$metrics_dir, "metrics_average.csv"))
+```
+
+```{r}
+read_csv("~/Desktop/metrics_average.csv") %>%
+  filter(model == "snake")
+```
+
+```{r}
+write_csv(metrics_subsets, file.path(params$metrics_dir, "metrics_combined.csv"))
 ```
 
