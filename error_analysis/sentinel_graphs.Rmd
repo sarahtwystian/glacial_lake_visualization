@@ -132,24 +132,78 @@ subsample <- metrics_long %>%
   filter(subset == "sentinel_recent_new", label == "recent")
 ```
 
+```{r}
+plot_subsample <- function(subsample, title) {
+  ggplot(subsample, aes(model, value)) +
+    geom_line(aes(group = sample_id, size = .5 * Area), col = "#A6A6A6") +
+    geom_point(aes(size = Area), col = "#404040") +
+    facet_grid(metric ~ quantile, scales = "free_y") +
+    labs(
+      size = "Lake Area (km ^ 2)",
+      title = title,
+      y = "Metric Value"
+    ) +
+    scale_size(range = c(.5, 5)) +
+    scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+    theme(
+      axis.text.x = element_text(size = 12),
+      axis.title.x = element_blank(),
+      strip.text.y = element_text(angle = 0),
+      plot.title = element_text(size = 20)
+    )
+}
+
+copy_images <- function(sample_ids, base_dir, output_dir="sentinel_quantiles") {
+  for (qn in unique(sample_ids$quantile)) {
+    cur_ids <- sample_ids %>%
+      filter(quantile == qn) %>%
+      pull(sample_id) %>%
+      unique()
+    qn_dir <- file.path(params$base_dir, "sentinel_preds", output_dir, qn)
+    dir.create(qn_dir, recursive = TRUE)
+  
+    for (id in cur_ids) {
+      cur_images <- list.files(
+        file.path(params$base_dir, "sentinel_preds"), 
+        str_c(id, "_pred*"), 
+        recursive = TRUE,
+        full = TRUE
+      )
+      
+      for (im in cur_images) {
+        im_path <- path_split(im)[[1]]
+        cur_model <- im_path[length(im_path) - 1]
+        model_dir <- file.path(qn_dir, cur_model)
+        dir_create(model_dir)
+        file.copy(im, model_dir, recursive = TRUE)
+      }
+    }
+  }
+}
+```
 
 ```{r, fig.width = 14, fig.height = 8}
-ggplot(subsample, aes(model, value)) +
-  geom_line(aes(group = sample_id, size = .5 * Area), col = "#A6A6A6") +
-  geom_point(aes(size = Area), col = "#404040") +
-  facet_grid(metric ~ quantile, scales = "free_y") +
-  labs(
-    size = "Lake Area (km^2)",
-    title = str_c("Model Performance by Quantile (Sentinel)"),
-    y = "Metric Value"
-  ) +
-  scale_size(range = c(.5, 5)) +
-  scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
-  theme(
-    axis.text.x = element_text(size = 12),
-    axis.title.x = element_blank(),
-    strip.text.y = element_text(angle = 0),
-    plot.title = element_text(size = 20)
-  )
-#ggsave(file.path(params$base_dir, "metrics.png"), dpi = 150)
+plot_subsample(subsample, "Metrics by Quantile (Sentinel, Labeled Recent Imagery)")
+ggsave(file.path(params$base_dir, "quantiles_sentinel_recent.png"), dpi = 150)
+copy_images(subsample, params$base_dir, "sentinel_quantiles_recent")
 ```
+
+```{r, fig.width = 14, fig.height = 8}
+sample_ids <- iou_quantiles %>%
+  filter(subset %in% "sentinel_test", label == "ICIMOD") %>%
+  group_by(quantile) %>%
+  sample_n(5)
+
+subsample <- metrics_long %>%
+  filter(sample_id %in% sample_ids$sample_id) %>%
+  mutate(
+    model = factor(model, c('unet', 'delse-historical', 'delse', 'snake', 'unet-historical')),
+    metric = factor(metric, c("IoU", "precision", "recall", "frechet"))
+    ) %>%
+  filter(subset == "sentinel_test", label == "ICIMOD")
+
+plot_subsample(subsample, "Metrics by Quantile (Sentinel, Labels from 2015 provided by ICIMOD)")
+ggsave(file.path(params$base_dir, "quantiles_sentinel_icimod.png"), dpi = 150)
+copy_images(subsample, params$base_dir, "sentinel_quantiles_icimod")
+```
+

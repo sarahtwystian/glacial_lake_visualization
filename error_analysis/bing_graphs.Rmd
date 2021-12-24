@@ -12,6 +12,7 @@ params:
 library(readr)
 library(dplyr)
 library(ggplot2)
+library(fs)
 library(tidyr)
 library(tibble)
 library(sf)
@@ -212,65 +213,99 @@ sample_ids <- iou_quantiles %>%
 subsample <- metrics_long %>%
   filter(sample_id %in% sample_ids$sample_id) %>%
   mutate(
-    model = factor(model, c('unet', 'delse-historical', 'delse', 'snake', 'unet-historical')),
+    model = factor(model, c('delse-historical', 'unet', 'delse', 'unet-historical', 'snake')),
     metric = factor(metric, c("IoU", "precision", "recall", "frechet"))
     ) %>%
   filter(subset == "bing_recent_test", label == "recent")
 ```
 
+Here are some functions we'll use to make the plot and reorganize files from the
+relevant subsample.
 
 ```{r, fig.width = 14, fig.height = 8}
-ggplot(subsample, aes(model, value)) +
-  geom_line(aes(group = sample_id, size = .5 * Area), col = "#A6A6A6") +
-  geom_point(aes(size = Area), col = "#404040") +
-  facet_grid(metric ~ quantile, scales = "free_y") +
-  labs(
-    size = "Lake Area (km ^ 2)",
-    title = str_c("Model Performance by Quantile (Bing)"),
-    y = "Metric Value"
-  ) +
-  scale_size(range = c(.5, 5)) +
-  scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
-  theme(
-    axis.text.x = element_text(size = 12),
-    axis.title.x = element_blank(),
-    strip.text.y = element_text(angle = 0),
-    plot.title = element_text(size = 20)
-  )
-ggsave(file.path(params$base_dir, "metrics.png"), dpi = 150)
-```
-
-This tries to create new directories with images for each of the lines in the
-graph above.
-
-```{r}
-library(fs)
-
-for (qn in sample_ids$quantile) {
-  cur_ids <- sample_ids %>%
-    filter(quantile == qn) %>%
-    pull(sample_id)
-  qn_dir <- file.path(params$base_dir, "bing_preds", "bing_quantiles", qn)
-  dir.create(qn_dir)
-
-  for (id in cur_ids) {
-    cur_images <- list.files(
-      file.path(params$base_dir, "bing_preds"), 
-      str_c(id, "_pred*"), 
-      recursive = TRUE,
-      full = TRUE
+plot_subsample <- function(subsample, title) {
+  ggplot(subsample, aes(model, value)) +
+    geom_line(aes(group = sample_id, size = .5 * Area), col = "#A6A6A6") +
+    geom_point(aes(size = Area), col = "#404040") +
+    facet_grid(metric ~ quantile, scales = "free_y") +
+    labs(
+      size = "Lake Area (km ^ 2)",
+      title = title,
+      y = "Metric Value"
+    ) +
+    scale_size(range = c(.5, 5)) +
+    scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+    theme(
+      axis.text.x = element_text(size = 12),
+      axis.title.x = element_blank(),
+      strip.text.y = element_text(angle = 0),
+      plot.title = element_text(size = 20)
     )
-    
-    for (im in cur_images) {
-      im_path <- path_split(im)[[1]]
-      cur_model <- im_path[length(im_path) - 1]
-      model_dir <- file.path(qn_dir, cur_model)
-      dir_create(model_dir)
-      file.copy(im, model_dir, recursive = TRUE)
+}
+
+
+copy_images <- function(sample_ids, base_dir, output_dir="bing_quantiles") {
+  sample_ids <- sample_ids %>%
+    dplyr::select(quantile, sample_id) %>%
+    unique()
+  
+  for (qn in unique(sample_ids$quantile)) {
+    cur_ids <- sample_ids %>%
+      filter(quantile == qn) %>%
+      pull(sample_id)
+    qn_dir <- file.path(params$base_dir, "bing_preds", output_dir, qn)
+    dir.create(qn_dir, recursive = TRUE)
+  
+    for (id in cur_ids) {
+      cur_images <- list.files(
+        file.path(params$base_dir, "bing_preds"), 
+        str_c(id, "_pred*"), 
+        recursive = TRUE,
+        full = TRUE
+      )
       
+      for (im in cur_images) {
+        im_path <- path_split(im)[[1]]
+        cur_model <- im_path[length(im_path) - 1]
+        model_dir <- file.path(qn_dir, cur_model)
+        dir_create(model_dir)
+        file.copy(im, model_dir, recursive = TRUE)
+      }
     }
   }
 }
+```
+
+
+This makes the plot and creates new directories with images for each of the
+lines in the graph.
+
+```{r, fig.width = 14, fig.height = 8}
+plot_subsample(subsample, "Metrics by Quantile (Bing, Labeled Recent Imagery)")
+ggsave(file.path(params$base_dir, "quantiles_bing_recent.png"), dpi = 150)
+copy_images(subsample, params$base_dir, "bing_quantiles_recent")
+```
+
+This makes the corresponding figures for the original ICIMOD labeled imagery on
+the test set.
+
+```{r, fig.width = 14, fig.height = 8}
+sample_ids <- iou_quantiles %>%
+  filter(subset == "bing_test", label == "ICIMOD") %>%
+  group_by(quantile) %>%
+  sample_n(5)
+
+subsample <- metrics_long %>%
+  filter(sample_id %in% sample_ids$sample_id) %>%
+  mutate(
+    model = factor(model, c('unet', 'delse-historical', 'snake', 'delse', 'unet-historical')),
+    metric = factor(metric, c("IoU", "precision", "recall", "frechet"))
+    ) %>%
+  filter(subset == "bing_test", label == "ICIMOD")
+
+plot_subsample(subsample, "Metrics by Quantile (Bing, Labels from 2015 Provided by ICIMOD)")
+ggsave(file.path(params$base_dir, "quantiles_bing_icimod.png"), dpi = 150)
+copy_images(subsample, params$base_dir, "bing_quantiles_icimod")
 ```
 
 

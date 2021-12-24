@@ -34,6 +34,8 @@ metrics <- metrics_paths %>%
   left_join(metadata) %>%
   dplyr::select(dataset, sample_id, model, label, prob, IoU, precision, recall, frechet)
 ```
+
+
 ```{r}
 eval_paths <- read_csv(file.path(params$metrics_dir, "eval_paths.csv"))
 metrics_subsets <- eval_paths %>%
@@ -73,9 +75,3 @@ metrics_average %>%
 ```{r}
 write_csv(metrics_subsets, file.path(params$metrics_dir, "metrics_combined.csv"))
 ```
-
-```{r}
-read_csv("~/Downloads/metrics_average.csv") %>%
-  arrange(dataset, subset, model)
-```
-
