@@ -12,12 +12,17 @@ library(stringr)
 
 ```{r}
 sentinel <- list()
+icimod <- read_sf("~/Desktop/glaciers/data/labels/GL_3basins_2015.shp")
 sentinel[["kris"]] <- read_sf("~/Desktop/glaciers/data/labels/sentinel_kris/labels_kris.shp") %>%
   mutate(GL_ID = str_extract(file, "[:alnum:]+"))
 sentinel[["sarah"]] <- read_sf("~/Desktop/glaciers/data/labels/sentinel/sentinel_labels.shp") %>%
   mutate(GL_ID = str_extract(file, "[:alnum:]+"))
 bind_rows(sentinel) %>%
+  left_join(icimod %>% select(GL_ID, Sub_Basin, Area) %>% as.data.frame() %>% select(-geometry)) %>%
   write_sf("~/Desktop/glaciers/data/labels/sentinel_combined.shp")
+```
+
+```{r}
 ```
 
 
@@ -28,6 +33,7 @@ bing[["sarah"]] <- read_sf("~/Desktop/glaciers/data/labels/bing/bing_labels.shp"
 bing[["kris"]] <- read_sf("~/Desktop/glaciers/data/labels/bing_kris.shp") %>%
   mutate(GL_ID = str_extract(file, "[:alnum:]+"))
 bind_rows(bing) %>%
+  left_join(icimod %>% select(GL_ID, Sub_Basin, Area) %>% as.data.frame() %>% select(-geometry)) %>%
   write_sf("~/Desktop/glaciers/data/labels/bing_combined.shp")
 ```
 
